@@ -72,6 +72,11 @@ const VIDEO_SIZES = {
   "square": { label: "Square (720×720)", width: 720, height: 720, maxArea: "720p" },
 };
 
+const FPS_OPTIONS = {
+  "16": { label: "16 FPS (Slower, more frames)", value: 16 },
+  "24": { label: "24 FPS (Film standard)", value: 24 },
+};
+
 // Parse SRT file content
 function parseSRT(content: string): ScheduleItem[] {
   const blocks = content.trim().split(/\n\n+/);
@@ -112,6 +117,7 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
   const [stylePreset, setStylePreset] = useState<keyof typeof STYLE_PRESETS>("cinematic");
   const [motionPreset, setMotionPreset] = useState<keyof typeof MOTION_PRESETS>("slow");
   const [videoSize, setVideoSize] = useState<keyof typeof VIDEO_SIZES>("720p");
+  const [videoFps, setVideoFps] = useState<keyof typeof FPS_OPTIONS>("24");
   const [customStylePrefix, setCustomStylePrefix] = useState("");
   const [useCustomStyle, setUseCustomStyle] = useState(false);
   const [useMoodPrompt, setUseMoodPrompt] = useState(true);
@@ -240,6 +246,7 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
     setCurrentSceneIndex(0);
 
     const sizeConfig = VIDEO_SIZES[videoSize];
+    const fpsValue = FPS_OPTIONS[videoFps].value;
 
     for (let i = 0; i < sceneList.length; i++) {
       setCurrentSceneIndex(i);
@@ -275,6 +282,7 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
               prompt: `${sceneList[i].prompt}, ${motionPrompt}`,
               duration: Math.min(sceneList[i].duration, 3),
               maxArea: sizeConfig.maxArea,
+              fps: fpsValue,
             },
           });
 
@@ -383,6 +391,21 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
               </SelectTrigger>
               <SelectContent className="bg-background border-border">
                 {Object.entries(VIDEO_SIZES).map(([key, value]) => (
+                  <SelectItem key={key} value={key}>{value.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Video FPS */}
+          <div className="space-y-2">
+            <Label className="text-sm text-muted-foreground">Frame Rate (FPS)</Label>
+            <Select value={videoFps} onValueChange={(v) => setVideoFps(v as keyof typeof FPS_OPTIONS)}>
+              <SelectTrigger className="bg-background">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="bg-background border-border">
+                {Object.entries(FPS_OPTIONS).map(([key, value]) => (
                   <SelectItem key={key} value={key}>{value.label}</SelectItem>
                 ))}
               </SelectContent>
