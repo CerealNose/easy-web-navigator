@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -6,9 +6,11 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Video, Play, Download, Settings, Loader2, ImageIcon, Film, Clock, Layers, Upload, FileJson, FileText, Images, X, AlertCircle } from "lucide-react";
+import { Video, Play, Download, Settings, Loader2, ImageIcon, Film, Clock, Layers, Upload, FileJson, FileText, Images, X, AlertCircle, Music } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { VideoPreviewPlayer } from "./VideoPreviewPlayer";
+import { SceneData } from "./remotion/MusicVideoComposition";
 
 interface Section {
   name: string;
@@ -133,6 +135,8 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
   const [autoGenerateVideo, setAutoGenerateVideo] = useState(true);
   const [baseSeed, setBaseSeed] = useState<number | null>(null);
   const [useConsistentSeed, setUseConsistentSeed] = useState(true);
+  const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [audioUrl, setAudioUrl] = useState<string>("");
 
   // Get the active style prefix based on source selection
   const getStylePrefix = (): string => {
@@ -157,7 +161,27 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
     });
   };
 
-  // Handle file upload (JSON or SRT)
+  // Handle audio file upload
+  const handleAudioUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    if (!file.type.startsWith('audio/')) {
+      toast.error("Please upload an audio file");
+      return;
+    }
+    
+    // Revoke previous URL if exists
+    if (audioUrl) {
+      URL.revokeObjectURL(audioUrl);
+    }
+    
+    const url = URL.createObjectURL(file);
+    setAudioFile(file);
+    setAudioUrl(url);
+    toast.success(`Loaded audio: ${file.name}`);
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -522,6 +546,30 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
   const totalDuration = previewScenes.reduce((acc, s) => acc + s.duration, 0);
   const completedScenes = scenes.filter(s => s.status === 'complete').length;
   const hasSourceData = uploadedSchedule.length > 0 || sections.length > 0;
+  
+  // Get FPS for Remotion
+  const fps = FPS_OPTIONS[videoFps].value;
+  const sizeConfig = VIDEO_SIZES[videoSize];
+  
+  // Motion types for Ken Burns
+  const MOTION_TYPES: SceneData["motionType"][] = [
+    "zoomIn", "panRight", "zoomOut", "panLeft", "panUp", "panDown"
+  ];
+  
+  // Convert generated scenes to Remotion format
+  const remotionScenes: SceneData[] = useMemo(() => {
+    return scenes
+      .filter(s => s.imageUrl && s.status === 'complete')
+      .map((scene, index) => ({
+        imageUrl: scene.imageUrl!,
+        startFrame: Math.round(scene.start * fps),
+        durationInFrames: Math.round((scene.end - scene.start) * fps),
+        motionType: MOTION_TYPES[index % MOTION_TYPES.length],
+        sectionName: scene.section,
+      }));
+  }, [scenes, fps]);
+  
+  const hasCompletedScenes = remotionScenes.length > 0;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -572,7 +620,56 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
         </div>
       </Card>
 
-      {/* Batch Image Upload Card */}
+      {/* Audio Upload Card */}
+      <Card className="p-6 glass-card border-border/50">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Music className="w-5 h-5 text-accent" />
+            <h3 className="font-semibold">Audio Track</h3>
+          </div>
+          {audioFile && (
+            <Button variant="ghost" size="sm" onClick={() => { 
+              if (audioUrl) URL.revokeObjectURL(audioUrl);
+              setAudioFile(null); 
+              setAudioUrl(""); 
+            }}>
+              <X className="w-4 h-4 mr-1" />
+              Remove
+            </Button>
+          )}
+        </div>
+        
+        <div className="space-y-4">
+          <div className="relative">
+            <Input
+              type="file"
+              accept="audio/*"
+              onChange={handleAudioUpload}
+              className="hidden"
+              id="audio-upload"
+            />
+            <label
+              htmlFor="audio-upload"
+              className="flex items-center justify-center gap-3 h-20 border-2 border-dashed border-border rounded-xl cursor-pointer hover:border-accent/50 hover:bg-muted/20 transition-all group"
+            >
+              <div className="flex flex-col items-center gap-2 text-muted-foreground group-hover:text-foreground transition-colors">
+                <Music className="w-6 h-6" />
+                <span className="text-sm font-medium">
+                  {audioFile ? audioFile.name : "Upload audio for final video"}
+                </span>
+              </div>
+            </label>
+          </div>
+          
+          {audioFile && (
+            <div className="text-sm text-muted-foreground flex items-center gap-2">
+              <span className="text-green-500">✓</span>
+              Audio loaded: {audioFile.name}
+            </div>
+          )}
+        </div>
+      </Card>
+
       <Card className="p-6 glass-card border-border/50">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
@@ -1049,15 +1146,46 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
         </div>
       )}
 
+      {/* Full Video Preview with Remotion */}
+      {hasCompletedScenes && (
+        <Card className="p-6 glass-card border-primary/30">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Film className="w-5 h-5 text-primary" />
+              <h3 className="font-semibold">Full Video Preview</h3>
+            </div>
+            <div className="text-sm text-muted-foreground">
+              {remotionScenes.length} scenes • {Math.round(totalDuration)}s
+            </div>
+          </div>
+          
+          <VideoPreviewPlayer
+            scenes={remotionScenes}
+            audioUrl={audioUrl || undefined}
+            fps={fps}
+            width={sizeConfig.width}
+            height={sizeConfig.height}
+          />
+          
+          <div className="mt-4 p-3 rounded-lg bg-muted/30">
+            <p className="text-sm text-muted-foreground">
+              <strong className="text-foreground">Preview your full music video</strong> with Ken Burns effects. 
+              {!audioUrl && " Upload an audio track above to hear the music."}
+              {audioUrl && " Audio is synced with the video preview."}
+            </p>
+          </div>
+        </Card>
+      )}
+
       {/* Info Card */}
       <Card className="p-4 glass-card border-border/50">
         <h3 className="text-sm font-medium text-muted-foreground mb-2">How GenVid Works</h3>
         <ul className="text-sm text-muted-foreground/80 space-y-1">
           <li>• Upload replicate_schedule.json or SRT from the Timestamps tab</li>
           <li>• OR add [Section] markers to lyrics (e.g., [Intro], [Verse 1], [Chorus])</li>
-          <li>• Timestamps determine each scene's duration automatically</li>
-          <li>• Mood Image prompt is used for consistent visual style</li>
-          <li>• Choose video size: 480p, 720p, Portrait, or Square</li>
+          <li>• Upload your audio track for synchronized playback</li>
+          <li>• Images get Ken Burns motion (zoom/pan) to match section durations</li>
+          <li>• Preview the full video before exporting</li>
         </ul>
       </Card>
     </div>
