@@ -2,9 +2,21 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Mic, Play, Upload, Clock, AudioLines, Download, Copy, FileJson } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+
+const PROMPT_PRESETS = {
+  cinematic: "cinematic scene of {text}, moody night city lights, emotional closeup, 720p",
+  anime: "anime style illustration of {text}, studio ghibli inspired, soft lighting, detailed background",
+  abstract: "abstract visual interpretation of {text}, flowing colors, ethereal atmosphere, artistic",
+  noir: "film noir scene of {text}, high contrast black and white, dramatic shadows, 1940s aesthetic",
+  dreamy: "dreamy surreal scene of {text}, soft focus, pastel colors, floating elements, magical",
+  cyberpunk: "cyberpunk scene of {text}, neon lights, rain-soaked streets, futuristic city, blade runner style",
+  nature: "serene nature scene inspired by {text}, golden hour lighting, cinematic landscape, peaceful",
+  minimal: "{text}, minimal style, clean composition, soft colors"
+};
 
 interface Timestamp {
   time: string;
@@ -255,7 +267,26 @@ export function TimestampPanel() {
       {timestamps.length > 0 && (
         <Card className="p-4 glass-card border-border/50">
           <h3 className="text-sm font-medium text-muted-foreground mb-2">Prompt Template</h3>
-          <p className="text-xs text-muted-foreground/60 mb-2">Use {"{text}"} as placeholder for lyrics</p>
+          <p className="text-xs text-muted-foreground/60 mb-3">Use {"{text}"} as placeholder for lyrics</p>
+          
+          <div className="flex gap-2 mb-3">
+            <Select onValueChange={(value) => setPromptTemplate(PROMPT_PRESETS[value as keyof typeof PROMPT_PRESETS])}>
+              <SelectTrigger className="w-[180px] bg-background">
+                <SelectValue placeholder="Choose preset..." />
+              </SelectTrigger>
+              <SelectContent className="bg-background border-border z-50">
+                <SelectItem value="cinematic">Cinematic</SelectItem>
+                <SelectItem value="anime">Anime</SelectItem>
+                <SelectItem value="abstract">Abstract</SelectItem>
+                <SelectItem value="noir">Film Noir</SelectItem>
+                <SelectItem value="dreamy">Dreamy</SelectItem>
+                <SelectItem value="cyberpunk">Cyberpunk</SelectItem>
+                <SelectItem value="nature">Nature</SelectItem>
+                <SelectItem value="minimal">Minimal</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          
           <Input
             value={promptTemplate}
             onChange={(e) => setPromptTemplate(e.target.value)}
