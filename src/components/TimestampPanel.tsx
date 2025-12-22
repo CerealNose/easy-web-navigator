@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Mic, Play, Upload, Clock, AudioLines, Download, Copy } from "lucide-react";
+import { Mic, Play, Upload, Clock, AudioLines, Download, Copy, FileJson } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -142,6 +142,31 @@ export function TimestampPanel() {
     toast.success("SRT file downloaded");
   };
 
+  const downloadReplicateSchedule = () => {
+    if (timestamps.length === 0) return;
+    
+    const schedule = timestamps.map((ts, i) => {
+      const nextTs = timestamps[i + 1];
+      const endTime = nextTs ? nextTs.start : ts.start + 8; // 8 second duration if no next timestamp
+      
+      return {
+        start: ts.start,
+        end: endTime,
+        text: ts.text,
+        prompt: `cinematic scene of ${ts.text}, moody night city lights, emotional closeup, 720p`
+      };
+    });
+
+    const blob = new Blob([JSON.stringify(schedule, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "replicate_schedule.json";
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Replicate schedule downloaded");
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Upload Section */}
@@ -213,6 +238,10 @@ export function TimestampPanel() {
               <Button variant="ghost" size="sm" onClick={downloadSRT}>
                 <Download className="w-4 h-4 mr-1" />
                 SRT
+              </Button>
+              <Button variant="ghost" size="sm" onClick={downloadReplicateSchedule}>
+                <FileJson className="w-4 h-4 mr-1" />
+                Replicate JSON
               </Button>
             </div>
           </div>
