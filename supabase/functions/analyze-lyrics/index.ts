@@ -36,27 +36,51 @@ Deno.serve(async (req) => {
         messages: [
           {
             role: "system",
-            content: `You are a lyrical analysis AI that detects emotions, moods, and visual themes from song lyrics. 
-
-Your task is to analyze the lyrics and return a JSON object with:
-1. "themes" - array of detected themes with their emotional intensity (1-5) and a gradient color pair
-2. "emotions" - primary emotions detected
-3. "moodPrompt" - a detailed, cinematic image generation prompt that captures the emotional essence of the lyrics
-
-For the moodPrompt, create vivid, atmospheric descriptions suitable for AI image generation. Include:
-- Visual setting (city, nature, abstract space)
-- Lighting and color palette
-- Mood and atmosphere
-- Symbolic elements that represent the lyrics
-- Style keywords (cinematic, neon, ethereal, etc.)
-
-Return ONLY valid JSON, no markdown or explanation.`
+            content: `You are a lyrical analysis AI. Analyze the lyrics to detect emotions, moods, and visual themes. Generate a cinematic image prompt that captures the emotional essence.`
           },
           {
             role: "user",
-            content: `Analyze these lyrics and generate a mood-based image prompt:\n\n${lyrics}`
+            content: `Analyze these lyrics:\n\n${lyrics}`
           }
         ],
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "analyze_lyrics_result",
+              description: "Return the analysis of the lyrics",
+              parameters: {
+                type: "object",
+                properties: {
+                  themes: {
+                    type: "array",
+                    description: "Detected emotional themes",
+                    items: {
+                      type: "object",
+                      properties: {
+                        name: { type: "string", description: "Theme name like 'love', 'melancholy', 'hope'" },
+                        intensity: { type: "number", description: "Intensity from 1-5" },
+                        color: { type: "string", description: "Tailwind gradient like 'from-pink-500 to-red-500'" }
+                      },
+                      required: ["name", "intensity", "color"]
+                    }
+                  },
+                  emotions: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Primary emotions detected"
+                  },
+                  moodPrompt: {
+                    type: "string",
+                    description: "Detailed cinematic image prompt with visual setting, lighting, mood, symbolic elements"
+                  }
+                },
+                required: ["themes", "emotions", "moodPrompt"]
+              }
+            }
+          }
+        ],
+        tool_choice: { type: "function", function: { name: "analyze_lyrics_result" } },
         temperature: 0.7,
       }),
     });
@@ -68,27 +92,15 @@ Return ONLY valid JSON, no markdown or explanation.`
     }
 
     const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
-
-    if (!content) {
-      throw new Error("No response from AI");
+    console.log("AI response:", JSON.stringify(data, null, 2));
+    
+    const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
+    if (!toolCall) {
+      throw new Error("No tool call in response");
     }
 
-    // Parse the JSON response from AI
-    let analysis;
-    try {
-      // Clean the response in case it has markdown code blocks
-      const cleanedContent = content.replace(/```json\n?|\n?```/g, "").trim();
-      analysis = JSON.parse(cleanedContent);
-    } catch {
-      console.error("Failed to parse AI response:", content);
-      // Fallback with the raw content as the mood prompt
-      analysis = {
-        themes: [{ name: "emotional", intensity: 3, color: "from-purple-500 to-pink-500" }],
-        emotions: ["introspective"],
-        moodPrompt: content
-      };
-    }
+    const analysis = JSON.parse(toolCall.function.arguments);
+    console.log("Parsed analysis:", JSON.stringify(analysis, null, 2));
 
     return new Response(
       JSON.stringify(analysis),
