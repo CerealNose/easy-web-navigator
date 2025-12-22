@@ -479,7 +479,8 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
               prompt: sceneList[i].prompt,
               seed: sceneSeed,
               width: sizeConfig.width,
-              height: sizeConfig.height
+              height: sizeConfig.height,
+              quality: imageQuality[0]
             },
           });
 

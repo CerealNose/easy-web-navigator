@@ -22,7 +22,7 @@ Deno.serve(async (req) => {
       auth: REPLICATE_API_KEY,
     });
 
-    const { prompt, seed, width, height } = await req.json();
+    const { prompt, seed, width, height, quality } = await req.json();
 
     if (!prompt || typeof prompt !== "string") {
       return new Response(
@@ -33,10 +33,12 @@ Deno.serve(async (req) => {
 
     // Use provided seed or generate a random one
     const useSeed = seed ?? Math.floor(Math.random() * 2147483647);
+    const outputQuality = quality ?? 80;
     
     console.log("Generating image with prompt:", prompt);
     console.log("Using seed:", useSeed);
     console.log("Dimensions:", width, "x", height);
+    console.log("Quality:", outputQuality);
 
     // Determine aspect ratio from dimensions or default to 16:9
     let aspectRatio = "16:9";
@@ -60,7 +62,7 @@ Deno.serve(async (req) => {
           num_outputs: 1,
           aspect_ratio: aspectRatio,
           output_format: "webp",
-          output_quality: 80,
+          output_quality: outputQuality,
           num_inference_steps: 4
         }
       }
