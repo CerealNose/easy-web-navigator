@@ -7,7 +7,8 @@ import { toast } from "sonner";
 
 interface Theme {
   name: string;
-  count: number;
+  count?: number;
+  intensity?: number;
   color: string;
 }
 
@@ -41,7 +42,7 @@ export function MoodImagePanel({ prompt, themes, onPromptChange }: MoodImagePane
                 key={theme.name}
                 className={`px-3 py-1 rounded-full text-sm font-medium bg-gradient-to-r ${theme.color} text-primary-foreground`}
               >
-                {theme.name} ({theme.count})
+                {theme.name} {theme.intensity ? `(${theme.intensity}/5)` : theme.count ? `(${theme.count})` : ""}
               </span>
             ))}
           </div>
