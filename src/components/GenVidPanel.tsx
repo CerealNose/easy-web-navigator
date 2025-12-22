@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Video, Play, Download, Settings, Loader2, ImageIcon, Film, Clock, Layers, Upload, FileJson, FileText, Images, X, AlertCircle, Music } from "lucide-react";
+import { Video, Play, Download, Settings, Loader2, ImageIcon, Film, Clock, Layers, Upload, FileJson, FileText, Images, X, AlertCircle, Music, Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { VideoPreviewPlayer } from "./VideoPreviewPlayer";
@@ -128,7 +128,7 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
   const [motionPreset, setMotionPreset] = useState<keyof typeof MOTION_PRESETS>("slow");
   const [videoSize, setVideoSize] = useState<keyof typeof VIDEO_SIZES>("720p");
   const [videoFps, setVideoFps] = useState<keyof typeof FPS_OPTIONS>("24");
-  const [styleSource, setStyleSource] = useState<"preset" | "mood" | "manual">(moodPrompt ? "mood" : "preset");
+  const [styleSource, setStyleSource] = useState<"preset" | "mood" | "manual" | "reference">(moodPrompt ? "mood" : "preset");
   const [manualStylePrefix, setManualStylePrefix] = useState("");
   const [imageQuality, setImageQuality] = useState([80]);
   const [videoDurationMultiplier, setVideoDurationMultiplier] = useState([1]);
@@ -137,10 +137,15 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
   const [useConsistentSeed, setUseConsistentSeed] = useState(true);
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [audioUrl, setAudioUrl] = useState<string>("");
+  const [referenceImage, setReferenceImage] = useState<{ file: File; preview: string } | null>(null);
+  const [referenceStylePrompt, setReferenceStylePrompt] = useState<string>("");
+  const [isAnalyzingStyle, setIsAnalyzingStyle] = useState(false);
 
   // Get the active style prefix based on source selection
   const getStylePrefix = (): string => {
     switch (styleSource) {
+      case "reference":
+        return referenceStylePrompt || STYLE_PRESETS[stylePreset].prefix;
       case "mood":
         return moodPrompt || STYLE_PRESETS[stylePreset].prefix;
       case "manual":
@@ -148,6 +153,59 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
       case "preset":
       default:
         return STYLE_PRESETS[stylePreset].prefix;
+    }
+  };
+
+  // Handle reference image upload and style analysis
+  const handleReferenceImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    if (!file.type.startsWith('image/')) {
+      toast.error("Please upload an image file");
+      return;
+    }
+    
+    // Clean up previous reference image
+    if (referenceImage) {
+      URL.revokeObjectURL(referenceImage.preview);
+    }
+    
+    const preview = URL.createObjectURL(file);
+    setReferenceImage({ file, preview });
+    setStyleSource("reference");
+    
+    // Analyze the image style
+    setIsAnalyzingStyle(true);
+    try {
+      const base64 = await fileToBase64(file);
+      
+      const response = await supabase.functions.invoke("analyze-image-style", {
+        body: { imageBase64: base64 }
+      });
+      
+      if (response.error) throw response.error;
+      
+      const styleDescription = response.data.styleDescription;
+      setReferenceStylePrompt(styleDescription);
+      toast.success("Style analyzed! Will apply to all generated images.");
+    } catch (err) {
+      console.error("Style analysis error:", err);
+      toast.error("Failed to analyze image style");
+    } finally {
+      setIsAnalyzingStyle(false);
+    }
+  };
+
+  // Remove reference image
+  const removeReferenceImage = () => {
+    if (referenceImage) {
+      URL.revokeObjectURL(referenceImage.preview);
+    }
+    setReferenceImage(null);
+    setReferenceStylePrompt("");
+    if (styleSource === "reference") {
+      setStyleSource("preset");
     }
   };
 
@@ -822,12 +880,18 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
           {/* Style Source */}
           <div className="space-y-2 md:col-span-2">
             <Label className="text-sm text-muted-foreground">Style Source</Label>
-            <Select value={styleSource} onValueChange={(v) => setStyleSource(v as "preset" | "mood" | "manual")}>
+            <Select value={styleSource} onValueChange={(v) => setStyleSource(v as "preset" | "mood" | "manual" | "reference")}>
               <SelectTrigger className="bg-background">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="bg-background border-border">
                 <SelectItem value="preset">Use Preset Style</SelectItem>
+                <SelectItem value="reference">
+                  <span className="flex items-center gap-2">
+                    <Sparkles className="w-3 h-3" />
+                    Use Reference Image Style {referenceImage ? "✓" : ""}
+                  </span>
+                </SelectItem>
                 <SelectItem value="mood" disabled={!moodPrompt}>
                   Use Mood Image Prompt {!moodPrompt && "(analyze lyrics first)"}
                 </SelectItem>
@@ -835,6 +899,67 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
               </SelectContent>
             </Select>
           </div>
+
+          {/* Reference Image Upload - show when reference is selected */}
+          {styleSource === "reference" && (
+            <div className="space-y-3 md:col-span-2">
+              <Label className="text-sm text-muted-foreground">Reference Image</Label>
+              
+              {!referenceImage ? (
+                <div className="relative">
+                  <Input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleReferenceImageUpload}
+                    className="hidden"
+                    id="reference-image-upload"
+                  />
+                  <label
+                    htmlFor="reference-image-upload"
+                    className="flex items-center justify-center gap-3 h-20 border-2 border-dashed border-border rounded-xl cursor-pointer hover:border-primary/50 hover:bg-muted/20 transition-all group"
+                  >
+                    <div className="flex items-center gap-2 text-muted-foreground group-hover:text-foreground transition-colors">
+                      <Sparkles className="w-5 h-5" />
+                      <span className="text-sm font-medium">Upload a reference image for style</span>
+                    </div>
+                  </label>
+                </div>
+              ) : (
+                <div className="flex gap-4 items-start">
+                  <div className="relative w-24 h-24 rounded-lg overflow-hidden border border-border">
+                    <img 
+                      src={referenceImage.preview} 
+                      alt="Reference" 
+                      className="w-full h-full object-cover"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="absolute top-1 right-1 w-6 h-6 bg-background/80 hover:bg-background"
+                      onClick={removeReferenceImage}
+                    >
+                      <X className="w-3 h-3" />
+                    </Button>
+                  </div>
+                  <div className="flex-1 space-y-2">
+                    {isAnalyzingStyle ? (
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span className="text-sm">Analyzing style...</span>
+                      </div>
+                    ) : referenceStylePrompt ? (
+                      <>
+                        <Label className="text-xs text-muted-foreground">Extracted Style:</Label>
+                        <div className="p-2 rounded-lg bg-muted/30 text-xs text-foreground/80 max-h-16 overflow-y-auto">
+                          {referenceStylePrompt}
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Visual Style Preset - only show when preset is selected */}
           {styleSource === "preset" && (
