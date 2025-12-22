@@ -3,6 +3,7 @@ import { TabNav } from "@/components/TabNav";
 import { LyricsAnalyzer } from "@/components/LyricsAnalyzer";
 import { MoodImagePanel } from "@/components/MoodImagePanel";
 import { TimestampPanel } from "@/components/TimestampPanel";
+import { GenVidPanel } from "@/components/GenVidPanel";
 import { Film, Github, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -17,17 +18,30 @@ interface Section {
   text: string;
 }
 
+interface Timestamp {
+  time: string;
+  text: string;
+  start: number;
+  end: number;
+  section?: string;
+}
+
 const Index = () => {
   const [activeTab, setActiveTab] = useState("analyze");
   const [moodPrompt, setMoodPrompt] = useState("");
   const [themes, setThemes] = useState<Theme[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
+  const [timestamps, setTimestamps] = useState<Timestamp[]>([]);
 
   const handleAnalyze = (prompt: string, detectedThemes: Theme[], detectedSections: Section[]) => {
     setMoodPrompt(prompt);
     setThemes(detectedThemes);
     setSections(detectedSections);
     setActiveTab("mood");
+  };
+
+  const handleTimestampsGenerated = (generatedTimestamps: Timestamp[]) => {
+    setTimestamps(generatedTimestamps);
   };
 
   return (
@@ -90,7 +104,15 @@ const Index = () => {
                 onPromptChange={setMoodPrompt}
               />
             )}
-            {activeTab === "timestamps" && <TimestampPanel sections={sections} />}
+            {activeTab === "timestamps" && (
+              <TimestampPanel 
+                sections={sections} 
+                onTimestampsGenerated={handleTimestampsGenerated}
+              />
+            )}
+            {activeTab === "genvid" && (
+              <GenVidPanel sections={sections} timestamps={timestamps} />
+            )}
           </section>
         </div>
       </main>

@@ -18,7 +18,7 @@ const PROMPT_PRESETS = {
   minimal: "{text}, minimal style, clean composition, soft colors"
 };
 
-interface Timestamp {
+export interface Timestamp {
   time: string;
   text: string;
   start: number;
@@ -33,6 +33,7 @@ interface Section {
 
 interface TimestampPanelProps {
   sections?: Section[];
+  onTimestampsGenerated?: (timestamps: Timestamp[]) => void;
 }
 
 const FPS = 24;
@@ -54,7 +55,7 @@ function matchSection(text: string, sections: Section[]): string {
   return "Verse";
 }
 
-export function TimestampPanel({ sections = [] }: TimestampPanelProps) {
+export function TimestampPanel({ sections = [], onTimestampsGenerated }: TimestampPanelProps) {
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [timestamps, setTimestamps] = useState<Timestamp[]>([]);
@@ -100,6 +101,7 @@ export function TimestampPanel({ sections = [] }: TimestampPanelProps) {
         }));
 
         setTimestamps(segmentTimestamps);
+        onTimestampsGenerated?.(segmentTimestamps);
         toast.success(`Generated ${segmentTimestamps.length} timestamps from segments`);
       } else {
         // Fallback if no segments
