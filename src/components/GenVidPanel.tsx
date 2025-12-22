@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Video, Play, Download, Settings, Loader2, ImageIcon, Film, Clock, Layers } from "lucide-react";
+import { Video, Play, Download, Settings, Loader2, ImageIcon, Film, Clock, Layers, Upload, FileJson, FileText } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -23,10 +23,19 @@ interface Timestamp {
   section?: string;
 }
 
+interface ScheduleItem {
+  start: number;
+  end: number;
+  text: string;
+  prompt?: string;
+}
+
 interface GeneratedScene {
   section: string;
   prompt: string;
   duration: number;
+  start: number;
+  end: number;
   imageUrl?: string;
   videoUrl?: string;
   status: 'pending' | 'generating-image' | 'generating-video' | 'complete' | 'error';
@@ -35,6 +44,7 @@ interface GeneratedScene {
 interface GenVidPanelProps {
   sections: Section[];
   timestamps: Timestamp[];
+  moodPrompt?: string;
 }
 
 const STYLE_PRESETS = {
@@ -55,57 +65,170 @@ const MOTION_PRESETS = {
   zoom: { label: "Slow Zoom", prompt: "slow zoom in, focus on details, cinematic" },
 };
 
-export function GenVidPanel({ sections, timestamps }: GenVidPanelProps) {
+const VIDEO_SIZES = {
+  "480p": { label: "480p (854×480)", width: 854, height: 480, maxArea: "480p" },
+  "720p": { label: "720p (1280×720)", width: 1280, height: 720, maxArea: "720p" },
+  "portrait": { label: "Portrait (480×854)", width: 480, height: 854, maxArea: "480p" },
+  "square": { label: "Square (720×720)", width: 720, height: 720, maxArea: "720p" },
+};
+
+// Parse SRT file content
+function parseSRT(content: string): ScheduleItem[] {
+  const blocks = content.trim().split(/\n\n+/);
+  const items: ScheduleItem[] = [];
+  
+  for (const block of blocks) {
+    const lines = block.split('\n');
+    if (lines.length >= 3) {
+      const timeLine = lines[1];
+      const textLines = lines.slice(2).join(' ');
+      
+      // Parse time: 00:00:01,000 --> 00:00:04,000
+      const timeMatch = timeLine.match(/(\d{2}):(\d{2}):(\d{2}),(\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2}),(\d{3})/);
+      if (timeMatch) {
+        const startSec = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseInt(timeMatch[3]) + parseInt(timeMatch[4]) / 1000;
+        const endSec = parseInt(timeMatch[5]) * 3600 + parseInt(timeMatch[6]) * 60 + parseInt(timeMatch[7]) + parseInt(timeMatch[8]) / 1000;
+        
+        items.push({
+          start: startSec,
+          end: endSec,
+          text: textLines.trim()
+        });
+      }
+    }
+  }
+  
+  return items;
+}
+
+export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPanelProps) {
   const [scenes, setScenes] = useState<GeneratedScene[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
+  const [uploadedSchedule, setUploadedSchedule] = useState<ScheduleItem[]>([]);
+  const [uploadedFileName, setUploadedFileName] = useState<string>("");
   
   // Settings
   const [stylePreset, setStylePreset] = useState<keyof typeof STYLE_PRESETS>("cinematic");
   const [motionPreset, setMotionPreset] = useState<keyof typeof MOTION_PRESETS>("slow");
+  const [videoSize, setVideoSize] = useState<keyof typeof VIDEO_SIZES>("720p");
   const [customStylePrefix, setCustomStylePrefix] = useState("");
   const [useCustomStyle, setUseCustomStyle] = useState(false);
+  const [useMoodPrompt, setUseMoodPrompt] = useState(true);
   const [imageQuality, setImageQuality] = useState([80]);
   const [videoDurationMultiplier, setVideoDurationMultiplier] = useState([1]);
   const [autoGenerateVideo, setAutoGenerateVideo] = useState(true);
 
-  // Calculate scenes from sections and timestamps
-  const calculateScenes = (): GeneratedScene[] => {
-    if (sections.length === 0) {
-      toast.error("No sections detected. Please analyze lyrics first with [Section] markers.");
-      return [];
+  // Use mood prompt as custom style when enabled
+  useEffect(() => {
+    if (moodPrompt && useMoodPrompt) {
+      setCustomStylePrefix(moodPrompt);
+      setUseCustomStyle(true);
     }
+  }, [moodPrompt, useMoodPrompt]);
 
-    // Map sections to their durations using timestamps
-    const sceneList: GeneratedScene[] = sections.map((section, index) => {
-      // Find timestamps that belong to this section
-      const sectionTimestamps = timestamps.filter(ts => {
-        const words = ts.text.toLowerCase().split(/\s+/);
-        const sectionWords = section.text.toLowerCase();
-        return words.some(word => sectionWords.includes(word));
-      });
-
-      // Calculate duration from timestamps
-      let duration = 3; // default 3 seconds
-      if (sectionTimestamps.length > 0) {
-        const start = Math.min(...sectionTimestamps.map(ts => ts.start));
-        const end = Math.max(...sectionTimestamps.map(ts => ts.end));
-        duration = Math.max(3, end - start); // minimum 3 seconds
+  // Handle file upload (JSON or SRT)
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    try {
+      const content = await file.text();
+      const fileName = file.name.toLowerCase();
+      
+      if (fileName.endsWith('.json')) {
+        const schedule = JSON.parse(content) as ScheduleItem[];
+        setUploadedSchedule(schedule);
+        setUploadedFileName(file.name);
+        toast.success(`Loaded ${schedule.length} scenes from JSON`);
+      } else if (fileName.endsWith('.srt')) {
+        const schedule = parseSRT(content);
+        setUploadedSchedule(schedule);
+        setUploadedFileName(file.name);
+        toast.success(`Loaded ${schedule.length} scenes from SRT`);
+      } else {
+        toast.error("Please upload a .json or .srt file");
       }
+    } catch (err) {
+      console.error("File parse error:", err);
+      toast.error("Failed to parse file");
+    }
+  };
 
-      // Build prompt from section
-      const stylePrefix = useCustomStyle ? customStylePrefix : STYLE_PRESETS[stylePreset].prefix;
-      const prompt = `${stylePrefix}, ${section.name.toLowerCase()}: ${section.text.slice(0, 100)}`;
+  // Match section to timestamp text
+  const matchSectionToText = (text: string): string => {
+    const words = text.toLowerCase().split(/\s+/);
+    for (const section of sections) {
+      const sectionWords = section.text.toLowerCase();
+      if (words.some(word => word.length > 3 && sectionWords.includes(word))) {
+        return section.name;
+      }
+    }
+    return "Scene";
+  };
 
-      return {
-        section: section.name,
-        prompt,
-        duration: duration * videoDurationMultiplier[0],
-        status: 'pending' as const,
-      };
-    });
+  // Calculate scenes from uploaded schedule OR sections + timestamps
+  const calculateScenes = (): GeneratedScene[] => {
+    const stylePrefix = useCustomStyle ? customStylePrefix : STYLE_PRESETS[stylePreset].prefix;
+    
+    // Priority 1: Use uploaded schedule
+    if (uploadedSchedule.length > 0) {
+      return uploadedSchedule.map((item, index) => {
+        const duration = (item.end - item.start) * videoDurationMultiplier[0];
+        const sectionName = matchSectionToText(item.text);
+        
+        // Use prompt from schedule if available, otherwise build from text
+        const prompt = item.prompt 
+          ? `${stylePrefix}, ${item.prompt}` 
+          : `${stylePrefix}, ${sectionName.toLowerCase()}: ${item.text.slice(0, 100)}`;
+        
+        return {
+          section: sectionName || `Scene ${index + 1}`,
+          prompt,
+          duration: Math.max(3, duration),
+          start: item.start,
+          end: item.end,
+          status: 'pending' as const,
+        };
+      });
+    }
+    
+    // Priority 2: Use sections + timestamps  
+    if (sections.length > 0) {
+      return sections.map((section, index) => {
+        // Find timestamps that belong to this section
+        const sectionTimestamps = timestamps.filter(ts => {
+          const words = ts.text.toLowerCase().split(/\s+/);
+          const sectionWords = section.text.toLowerCase();
+          return words.some(word => word.length > 3 && sectionWords.includes(word));
+        });
 
-    return sceneList;
+        // Calculate duration from timestamps
+        let start = index * 10; // default staggered
+        let end = start + 5;
+        let duration = 5;
+        
+        if (sectionTimestamps.length > 0) {
+          start = Math.min(...sectionTimestamps.map(ts => ts.start));
+          end = Math.max(...sectionTimestamps.map(ts => ts.end));
+          duration = Math.max(3, (end - start) * videoDurationMultiplier[0]);
+        }
+
+        const prompt = `${stylePrefix}, ${section.name.toLowerCase()}: ${section.text.slice(0, 100)}`;
+
+        return {
+          section: section.name,
+          prompt,
+          duration,
+          start,
+          end,
+          status: 'pending' as const,
+        };
+      });
+    }
+    
+    toast.error("Upload a schedule file or analyze lyrics with [Section] markers first.");
+    return [];
   };
 
   const generateAllScenes = async () => {
@@ -115,6 +238,8 @@ export function GenVidPanel({ sections, timestamps }: GenVidPanelProps) {
     setScenes(sceneList);
     setIsGenerating(true);
     setCurrentSceneIndex(0);
+
+    const sizeConfig = VIDEO_SIZES[videoSize];
 
     for (let i = 0; i < sceneList.length; i++) {
       setCurrentSceneIndex(i);
@@ -127,7 +252,11 @@ export function GenVidPanel({ sections, timestamps }: GenVidPanelProps) {
 
         // Generate image
         const imageRes = await supabase.functions.invoke("generate-image", {
-          body: { prompt: sceneList[i].prompt },
+          body: { 
+            prompt: sceneList[i].prompt,
+            width: sizeConfig.width,
+            height: sizeConfig.height
+          },
         });
 
         if (imageRes.error) throw imageRes.error;
@@ -144,7 +273,8 @@ export function GenVidPanel({ sections, timestamps }: GenVidPanelProps) {
             body: {
               imageUrl,
               prompt: `${sceneList[i].prompt}, ${motionPrompt}`,
-              duration: Math.min(sceneList[i].duration, 3), // API limit
+              duration: Math.min(sceneList[i].duration, 3),
+              maxArea: sizeConfig.maxArea,
             },
           });
 
@@ -186,11 +316,56 @@ export function GenVidPanel({ sections, timestamps }: GenVidPanelProps) {
     toast.success(`Downloading ${videos.length} videos`);
   };
 
-  const totalDuration = scenes.reduce((acc, s) => acc + s.duration, 0);
+  const previewScenes = calculateScenes();
+  const totalDuration = previewScenes.reduce((acc, s) => acc + s.duration, 0);
   const completedScenes = scenes.filter(s => s.status === 'complete').length;
+  const hasSourceData = uploadedSchedule.length > 0 || sections.length > 0;
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* File Upload Card */}
+      <Card className="p-6 glass-card border-border/50">
+        <div className="flex items-center gap-2 mb-4">
+          <Upload className="w-5 h-5 text-primary" />
+          <h3 className="font-semibold">Import Schedule</h3>
+        </div>
+        
+        <div className="space-y-4">
+          <div className="relative">
+            <Input
+              type="file"
+              accept=".json,.srt"
+              onChange={handleFileUpload}
+              className="hidden"
+              id="schedule-upload"
+            />
+            <label
+              htmlFor="schedule-upload"
+              className="flex items-center justify-center gap-3 h-24 border-2 border-dashed border-border rounded-xl cursor-pointer hover:border-primary/50 hover:bg-muted/20 transition-all group"
+            >
+              <div className="flex flex-col items-center gap-2 text-muted-foreground group-hover:text-foreground transition-colors">
+                <div className="flex gap-2">
+                  <FileJson className="w-6 h-6" />
+                  <FileText className="w-6 h-6" />
+                </div>
+                <span className="text-sm font-medium">
+                  {uploadedFileName || "Upload replicate_schedule.json or .srt file"}
+                </span>
+                <span className="text-xs text-muted-foreground/60">
+                  Timestamps determine each scene's duration
+                </span>
+              </div>
+            </label>
+          </div>
+          
+          {uploadedSchedule.length > 0 && (
+            <div className="text-sm text-muted-foreground">
+              ✓ {uploadedSchedule.length} scenes loaded • Total: {Math.round(uploadedSchedule.reduce((a, s) => a + (s.end - s.start), 0))}s
+            </div>
+          )}
+        </div>
+      </Card>
+
       {/* Settings Card */}
       <Card className="p-6 glass-card border-border/50">
         <div className="flex items-center gap-2 mb-4">
@@ -199,10 +374,29 @@ export function GenVidPanel({ sections, timestamps }: GenVidPanelProps) {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Video Size */}
+          <div className="space-y-2">
+            <Label className="text-sm text-muted-foreground">Video Size</Label>
+            <Select value={videoSize} onValueChange={(v) => setVideoSize(v as keyof typeof VIDEO_SIZES)}>
+              <SelectTrigger className="bg-background">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="bg-background border-border">
+                {Object.entries(VIDEO_SIZES).map(([key, value]) => (
+                  <SelectItem key={key} value={key}>{value.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           {/* Style Preset */}
           <div className="space-y-2">
             <Label className="text-sm text-muted-foreground">Visual Style</Label>
-            <Select value={stylePreset} onValueChange={(v) => setStylePreset(v as keyof typeof STYLE_PRESETS)}>
+            <Select 
+              value={stylePreset} 
+              onValueChange={(v) => setStylePreset(v as keyof typeof STYLE_PRESETS)}
+              disabled={useCustomStyle}
+            >
               <SelectTrigger className="bg-background">
                 <SelectValue />
               </SelectTrigger>
@@ -229,6 +423,32 @@ export function GenVidPanel({ sections, timestamps }: GenVidPanelProps) {
             </Select>
           </div>
 
+          {/* Duration Multiplier */}
+          <div className="space-y-2">
+            <Label className="text-sm text-muted-foreground">
+              Duration Multiplier: {videoDurationMultiplier[0].toFixed(1)}x
+            </Label>
+            <Slider
+              value={videoDurationMultiplier}
+              onValueChange={setVideoDurationMultiplier}
+              min={0.5}
+              max={2}
+              step={0.1}
+              className="w-full"
+            />
+          </div>
+
+          {/* Use Mood Prompt Toggle */}
+          {moodPrompt && (
+            <div className="flex items-center justify-between md:col-span-2">
+              <div>
+                <Label className="text-sm">Use Mood Image Prompt</Label>
+                <p className="text-xs text-muted-foreground">Apply the AI mood prompt from Mood Image tab</p>
+              </div>
+              <Switch checked={useMoodPrompt} onCheckedChange={setUseMoodPrompt} />
+            </div>
+          )}
+
           {/* Custom Style Toggle */}
           <div className="space-y-2 md:col-span-2">
             <div className="flex items-center justify-between">
@@ -243,21 +463,6 @@ export function GenVidPanel({ sections, timestamps }: GenVidPanelProps) {
                 className="bg-background"
               />
             )}
-          </div>
-
-          {/* Duration Multiplier */}
-          <div className="space-y-2">
-            <Label className="text-sm text-muted-foreground">
-              Duration Multiplier: {videoDurationMultiplier[0].toFixed(1)}x
-            </Label>
-            <Slider
-              value={videoDurationMultiplier}
-              onValueChange={setVideoDurationMultiplier}
-              min={0.5}
-              max={2}
-              step={0.1}
-              className="w-full"
-            />
           </div>
 
           {/* Image Quality */}
@@ -276,24 +481,26 @@ export function GenVidPanel({ sections, timestamps }: GenVidPanelProps) {
           </div>
 
           {/* Auto Generate Video */}
-          <div className="flex items-center justify-between md:col-span-2">
+          <div className="flex items-center justify-between">
             <div>
-              <Label className="text-sm">Auto-generate videos from images</Label>
-              <p className="text-xs text-muted-foreground">Generate video clips automatically after each image</p>
+              <Label className="text-sm">Auto-generate videos</Label>
+              <p className="text-xs text-muted-foreground">Create video clips from images</p>
             </div>
             <Switch checked={autoGenerateVideo} onCheckedChange={setAutoGenerateVideo} />
           </div>
         </div>
       </Card>
 
-      {/* Sections Preview */}
+      {/* Scenes Preview */}
       <Card className="p-6 glass-card border-border/50">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Layers className="w-5 h-5 text-secondary" />
-            <h3 className="font-semibold">Detected Sections ({sections.length})</h3>
+            <h3 className="font-semibold">
+              {uploadedSchedule.length > 0 ? `Imported Scenes (${uploadedSchedule.length})` : `Detected Sections (${sections.length})`}
+            </h3>
           </div>
-          {sections.length > 0 && (
+          {hasSourceData && (
             <div className="text-sm text-muted-foreground">
               <Clock className="w-4 h-4 inline mr-1" />
               Est. {Math.round(totalDuration)}s total
@@ -301,24 +508,30 @@ export function GenVidPanel({ sections, timestamps }: GenVidPanelProps) {
           )}
         </div>
 
-        {sections.length === 0 ? (
+        {!hasSourceData ? (
           <div className="text-center py-8 text-muted-foreground">
             <Film className="w-12 h-12 mx-auto mb-3 opacity-50" />
-            <p>No sections detected yet.</p>
-            <p className="text-sm">Go to "Analyze Lyrics" and add [Intro], [Verse], [Chorus] markers to your lyrics.</p>
+            <p>No scenes detected yet.</p>
+            <p className="text-sm">Upload a schedule file above, or analyze lyrics with [Section] markers.</p>
           </div>
         ) : (
           <div className="space-y-2 max-h-60 overflow-y-auto">
-            {sections.map((section, index) => (
+            {previewScenes.map((scene, index) => (
               <div
                 key={index}
                 className="flex items-center gap-3 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
               >
+                <span className="text-xs font-mono text-secondary min-w-[60px]">
+                  {scene.start.toFixed(1)}s
+                </span>
                 <span className="text-xs font-mono text-primary bg-primary/10 px-2 py-1 rounded">
-                  {section.name}
+                  {scene.section}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {scene.duration.toFixed(1)}s
                 </span>
                 <span className="text-sm text-foreground/80 flex-1 truncate">
-                  {section.text.slice(0, 80)}...
+                  {scene.prompt.slice(0, 60)}...
                 </span>
               </div>
             ))}
@@ -330,7 +543,7 @@ export function GenVidPanel({ sections, timestamps }: GenVidPanelProps) {
       <div className="flex gap-3">
         <Button
           onClick={generateAllScenes}
-          disabled={isGenerating || sections.length === 0}
+          disabled={isGenerating || !hasSourceData}
           variant="neon"
           size="lg"
           className="flex-1"
@@ -343,7 +556,7 @@ export function GenVidPanel({ sections, timestamps }: GenVidPanelProps) {
           ) : (
             <>
               <Video className="w-5 h-5" />
-              Generate All Scenes
+              Generate All Scenes ({previewScenes.length})
             </>
           )}
         </Button>
@@ -392,7 +605,10 @@ export function GenVidPanel({ sections, timestamps }: GenVidPanelProps) {
                 }`}
               >
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm font-medium text-primary">{scene.section}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono text-secondary">{scene.start.toFixed(1)}s</span>
+                    <span className="text-sm font-medium text-primary">{scene.section}</span>
+                  </div>
                   <span className="text-xs text-muted-foreground">{scene.duration.toFixed(1)}s</span>
                 </div>
 
@@ -441,11 +657,11 @@ export function GenVidPanel({ sections, timestamps }: GenVidPanelProps) {
       <Card className="p-4 glass-card border-border/50">
         <h3 className="text-sm font-medium text-muted-foreground mb-2">How GenVid Works</h3>
         <ul className="text-sm text-muted-foreground/80 space-y-1">
-          <li>• Add [Section] markers to your lyrics (e.g., [Intro], [Verse 1], [Chorus])</li>
-          <li>• Upload audio in the Timestamps tab to get timing data</li>
-          <li>• GenVid uses sections as scene prompts with your chosen style</li>
-          <li>• Timestamps determine each scene's duration</li>
-          <li>• Videos are generated using AI image-to-video models</li>
+          <li>• Upload replicate_schedule.json or SRT from the Timestamps tab</li>
+          <li>• OR add [Section] markers to lyrics (e.g., [Intro], [Verse 1], [Chorus])</li>
+          <li>• Timestamps determine each scene's duration automatically</li>
+          <li>• Mood Image prompt is used for consistent visual style</li>
+          <li>• Choose video size: 480p, 720p, Portrait, or Square</li>
         </ul>
       </Card>
     </div>
