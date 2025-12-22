@@ -145,14 +145,14 @@ export function TimestampPanel() {
   const downloadReplicateSchedule = () => {
     if (timestamps.length === 0) return;
     
-    const schedule = timestamps.map((ts, i) => {
-      const nextTs = timestamps[i + 1];
-      const endTime = nextTs ? nextTs.start : ts.start + 8; // 8 second duration if no next timestamp
+    const schedule = timestamps.map((ts) => {
+      const startSec = Math.round(ts.start * 10) / 10; // Round to 1 decimal
+      const endSec = Math.round((ts.start + 8) * 10) / 10; // 8s clips for WAN
       
       return {
-        start: ts.start,
-        end: endTime,
-        text: ts.text,
+        start: startSec,
+        end: endSec,
+        text: ts.text.trim(),
         prompt: `cinematic scene of ${ts.text}, moody night city lights, emotional closeup, 720p`
       };
     });
