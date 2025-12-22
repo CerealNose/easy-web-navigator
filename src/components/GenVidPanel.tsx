@@ -553,6 +553,8 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
         // Generate video if enabled
         if (autoGenerateVideo) {
           const motionPrompt = MOTION_PRESETS[motionPreset].prompt;
+          
+          // Start async video generation
           const videoRes = await supabase.functions.invoke("generate-video", {
             body: {
               imageUrl,
@@ -564,9 +566,32 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
           });
 
           if (videoRes.error) throw videoRes.error;
+          
+          // Poll for video completion
+          const predictionId = videoRes.data.predictionId;
+          let videoUrl: string | null = null;
+          let attempts = 0;
+          const maxAttempts = 120; // 10 minutes max
+          
+          while (attempts < maxAttempts && !videoUrl) {
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            
+            const pollRes = await supabase.functions.invoke("generate-video", {
+              body: { predictionId }
+            });
+            
+            if (pollRes.data?.status === "succeeded" && pollRes.data?.videoUrl) {
+              videoUrl = pollRes.data.videoUrl;
+            } else if (pollRes.data?.status === "failed") {
+              throw new Error(pollRes.data.error || "Video generation failed");
+            }
+            attempts++;
+          }
+          
+          if (!videoUrl) throw new Error("Video generation timed out");
 
           setScenes(prev => prev.map((s, idx) => 
-            idx === i ? { ...s, videoUrl: videoRes.data.videoUrl, status: 'complete' } : s
+            idx === i ? { ...s, videoUrl, status: 'complete' } : s
           ));
         }
 
