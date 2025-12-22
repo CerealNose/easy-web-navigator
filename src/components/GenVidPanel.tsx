@@ -131,6 +131,8 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
   const [imageQuality, setImageQuality] = useState([80]);
   const [videoDurationMultiplier, setVideoDurationMultiplier] = useState([1]);
   const [autoGenerateVideo, setAutoGenerateVideo] = useState(true);
+  const [baseSeed, setBaseSeed] = useState<number | null>(null);
+  const [useConsistentSeed, setUseConsistentSeed] = useState(true);
 
   // Get the active style prefix based on source selection
   const getStylePrefix = (): string => {
@@ -312,6 +314,16 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
 
     const sizeConfig = VIDEO_SIZES[videoSize];
     const fpsValue = FPS_OPTIONS[videoFps].value;
+    
+    // Generate a base seed for this batch if using consistent seeds
+    const batchSeed = useConsistentSeed 
+      ? (baseSeed ?? Math.floor(Math.random() * 2147483647))
+      : null;
+    
+    // Store the seed for display
+    if (useConsistentSeed && !baseSeed && batchSeed) {
+      setBaseSeed(batchSeed);
+    }
 
     for (let i = 0; i < sceneList.length; i++) {
       setCurrentSceneIndex(i);
@@ -330,14 +342,18 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
             idx === i ? { ...s, imageUrl: uploadedImages[i].preview, uploadedImage: base64, status: autoGenerateVideo ? 'generating-video' : 'complete' } : s
           ));
         } else {
-          // Generate image using AI
+          // Generate image using AI with consistent seed
           setScenes(prev => prev.map((s, idx) => 
             idx === i ? { ...s, status: 'generating-image' } : s
           ));
 
+          // Use base seed + scene index for variation while maintaining style consistency
+          const sceneSeed = batchSeed ? batchSeed + i : undefined;
+
           const imageRes = await supabase.functions.invoke("generate-image", {
             body: { 
               prompt: sceneList[i].prompt,
+              seed: sceneSeed,
               width: sizeConfig.width,
               height: sizeConfig.height
             },
@@ -714,6 +730,43 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
             </div>
             <Switch checked={autoGenerateVideo} onCheckedChange={setAutoGenerateVideo} />
           </div>
+
+          {/* Consistent Seed Toggle */}
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="text-sm">Consistent visual style</Label>
+              <p className="text-xs text-muted-foreground">Use related seeds for cohesive imagery</p>
+            </div>
+            <Switch checked={useConsistentSeed} onCheckedChange={setUseConsistentSeed} />
+          </div>
+
+          {/* Custom Seed Input */}
+          {useConsistentSeed && (
+            <div className="space-y-2 md:col-span-2">
+              <Label className="text-sm text-muted-foreground">
+                Base Seed {baseSeed ? `(current: ${baseSeed})` : "(auto-generated on first run)"}
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  type="number"
+                  value={baseSeed ?? ""}
+                  onChange={(e) => setBaseSeed(e.target.value ? parseInt(e.target.value) : null)}
+                  placeholder="Leave empty for random seed"
+                  className="bg-background"
+                />
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => setBaseSeed(Math.floor(Math.random() * 2147483647))}
+                >
+                  Randomize
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground/60">
+                Same seed + similar prompts = consistent visual style across scenes
+              </p>
+            </div>
+          )}
         </div>
       </Card>
 
