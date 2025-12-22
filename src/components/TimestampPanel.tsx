@@ -10,6 +10,7 @@ interface Timestamp {
   time: string;
   text: string;
   start: number;
+  end: number;
 }
 
 interface WordTimestamp {
@@ -58,45 +59,27 @@ export function TimestampPanel() {
 
       console.log("Transcription result:", data);
 
-      // Extract word timestamps and group into lines
-      const words: WordTimestamp[] = data.words || [];
+      // Use segments from Whisper (has proper start/end times)
+      const segments = data.segments || [];
       setFullTranscript(data.transcription || data.text || "");
 
-      if (words.length > 0) {
-        // Group words into ~5 second chunks or by natural pauses
-        const groupedTimestamps: Timestamp[] = [];
-        let currentGroup: string[] = [];
-        let groupStart = words[0].start;
+      if (segments.length > 0) {
+        const segmentTimestamps: Timestamp[] = segments.map((seg: { start: number; end: number; text: string }) => ({
+          time: formatTime(seg.start),
+          text: seg.text.trim(),
+          start: seg.start,
+          end: seg.end
+        }));
 
-        for (let i = 0; i < words.length; i++) {
-          const word = words[i];
-          currentGroup.push(word.word);
-
-          // Check if we should start a new group (pause > 1s or group > 5s)
-          const nextWord = words[i + 1];
-          const shouldBreak = !nextWord || 
-            (nextWord.start - word.end > 1) || 
-            (word.end - groupStart > 5);
-
-          if (shouldBreak && currentGroup.length > 0) {
-            groupedTimestamps.push({
-              time: formatTime(groupStart),
-              text: currentGroup.join(" ").trim(),
-              start: groupStart
-            });
-            currentGroup = [];
-            if (nextWord) groupStart = nextWord.start;
-          }
-        }
-
-        setTimestamps(groupedTimestamps);
-        toast.success(`Generated ${groupedTimestamps.length} timestamps`);
+        setTimestamps(segmentTimestamps);
+        toast.success(`Generated ${segmentTimestamps.length} timestamps from segments`);
       } else {
-        // Fallback if no word timestamps
+        // Fallback if no segments
         setTimestamps([{
           time: "00:00:00:00",
           text: data.transcription || data.text || "No transcription available",
-          start: 0
+          start: 0,
+          end: 0
         }]);
       }
 
@@ -146,8 +129,8 @@ export function TimestampPanel() {
     if (timestamps.length === 0) return;
     
     const schedule = timestamps.map((ts) => {
-      const startSec = Math.round(ts.start * 10) / 10; // Round to 1 decimal
-      const endSec = Math.round((ts.start + 8) * 10) / 10; // 8s clips for WAN
+      const startSec = Math.round(ts.start * 10) / 10;
+      const endSec = Math.round(ts.end * 10) / 10; // Use actual Whisper end time
       
       return {
         start: startSec,
