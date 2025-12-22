@@ -13,14 +13,51 @@ interface Theme {
   color: string;
 }
 
+interface Section {
+  name: string;
+  text: string;
+}
+
 interface LyricsAnalyzerProps {
-  onAnalyze: (prompt: string, themes: Theme[]) => void;
+  onAnalyze: (prompt: string, themes: Theme[], sections: Section[]) => void;
+}
+
+// Parse [Section] markers from lyrics
+function parseSections(lyrics: string): Section[] {
+  const sections: Section[] = [];
+  const regex = /\[([^\]]+)\]\s*([\s\S]*?)(?=\[|$)/g;
+  let match;
+  
+  while ((match = regex.exec(lyrics)) !== null) {
+    const name = match[1].trim();
+    const text = match[2].trim();
+    if (text) {
+      sections.push({ name, text });
+    }
+  }
+  
+  // If no sections found, treat entire lyrics as one section
+  if (sections.length === 0 && lyrics.trim()) {
+    sections.push({ name: "Verse", text: lyrics.trim() });
+  }
+  
+  return sections;
 }
 
 export function LyricsAnalyzer({ onAnalyze }: LyricsAnalyzerProps) {
   const [lyrics, setLyrics] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [detectedSections, setDetectedSections] = useState<Section[]>([]);
+
+  const handleLyricsChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newLyrics = e.target.value;
+    setLyrics(newLyrics);
+    
+    // Parse sections in real-time
+    const sections = parseSections(newLyrics);
+    setDetectedSections(sections);
+  };
 
   const analyzeLyrics = async () => {
     if (!lyrics.trim()) return;
@@ -29,6 +66,8 @@ export function LyricsAnalyzer({ onAnalyze }: LyricsAnalyzerProps) {
     setError(null);
     
     try {
+      const sections = parseSections(lyrics);
+      
       const { data, error: fnError } = await supabase.functions.invoke("analyze-lyrics", {
         body: { lyrics: lyrics.trim() }
       });
@@ -47,8 +86,8 @@ export function LyricsAnalyzer({ onAnalyze }: LyricsAnalyzerProps) {
         color: t.color || "from-purple-500 to-pink-500"
       }));
 
-      onAnalyze(data.moodPrompt || "", themes);
-      toast.success("Lyrics analyzed successfully!");
+      onAnalyze(data.moodPrompt || "", themes, sections);
+      toast.success(`Analyzed ${sections.length} sections!`);
     } catch (err) {
       console.error("Analysis error:", err);
       setError(err instanceof Error ? err.message : "Failed to analyze lyrics");
@@ -63,20 +102,46 @@ export function LyricsAnalyzer({ onAnalyze }: LyricsAnalyzerProps) {
       <div className="space-y-2">
         <label className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
           <FileText className="w-4 h-4" />
-          Paste your lyrics
+          Paste your lyrics (use [Section] markers for smart prompts)
         </label>
         <Textarea
-          placeholder="Enter your song lyrics here...
+          placeholder="Enter your song lyrics with section markers...
 
 Example:
+[Verse 1]
 Being cautious with my heart
 Late nights in the city glow
-Love echoes through the streets..."
+
+[Chorus]
+Love echoes through the streets
+Neon signs reflect my soul
+
+[Bridge]
+When the night falls down..."
           value={lyrics}
-          onChange={(e) => setLyrics(e.target.value)}
+          onChange={handleLyricsChange}
           className="min-h-[200px] bg-muted/30 border-border focus:border-primary focus:ring-primary/20 resize-none font-mono text-sm"
         />
       </div>
+
+      {/* Detected Sections Preview */}
+      {detectedSections.length > 0 && (
+        <Card className="p-3 glass-card border-border/50">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-xs font-medium text-muted-foreground">Detected Sections:</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {detectedSections.map((section, index) => (
+              <span
+                key={index}
+                className="px-2 py-1 text-xs rounded-md bg-primary/20 text-primary border border-primary/30"
+              >
+                [{section.name}] - {section.text.split('\n').length} lines
+              </span>
+            ))}
+          </div>
+        </Card>
+      )}
 
       {error && (
         <Card className="p-3 border-destructive/50 bg-destructive/10">
@@ -117,10 +182,10 @@ Love echoes through the streets..."
       <Card className="p-4 glass-card border-border/50">
         <h3 className="text-sm font-medium text-muted-foreground mb-2">How it works</h3>
         <ul className="text-sm text-muted-foreground/80 space-y-1">
-          <li>• Paste your song lyrics above</li>
+          <li>• Paste your song lyrics with [Section] markers</li>
           <li>• AI detects emotional themes & moods</li>
-          <li>• Generates a cinematic image prompt</li>
-          <li>• Use the prompt to create matching visuals</li>
+          <li>• Sections are matched to timestamps for smart prompts</li>
+          <li>• Generate images/videos with section-aware styling</li>
         </ul>
       </Card>
     </div>

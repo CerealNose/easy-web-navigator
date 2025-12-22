@@ -12,14 +12,21 @@ interface Theme {
   color: string;
 }
 
+interface Section {
+  name: string;
+  text: string;
+}
+
 const Index = () => {
   const [activeTab, setActiveTab] = useState("analyze");
   const [moodPrompt, setMoodPrompt] = useState("");
   const [themes, setThemes] = useState<Theme[]>([]);
+  const [sections, setSections] = useState<Section[]>([]);
 
-  const handleAnalyze = (prompt: string, detectedThemes: Theme[]) => {
+  const handleAnalyze = (prompt: string, detectedThemes: Theme[], detectedSections: Section[]) => {
     setMoodPrompt(prompt);
     setThemes(detectedThemes);
+    setSections(detectedSections);
     setActiveTab("mood");
   };
 
@@ -83,7 +90,7 @@ const Index = () => {
                 onPromptChange={setMoodPrompt}
               />
             )}
-            {activeTab === "timestamps" && <TimestampPanel />}
+            {activeTab === "timestamps" && <TimestampPanel sections={sections} />}
           </section>
         </div>
       </main>

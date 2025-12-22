@@ -23,23 +23,38 @@ interface Timestamp {
   text: string;
   start: number;
   end: number;
+  section?: string;
 }
 
-interface WordTimestamp {
-  word: string;
-  start: number;
-  end: number;
+interface Section {
+  name: string;
+  text: string;
+}
+
+interface TimestampPanelProps {
+  sections?: Section[];
 }
 
 const FPS = 24;
 
 function formatTime(seconds: number): string {
-  // Convert seconds to frame number at 24 FPS
   const frame = Math.round(seconds * FPS);
   return `@${frame}`;
 }
 
-export function TimestampPanel() {
+// Match timestamp text to section
+function matchSection(text: string, sections: Section[]): string {
+  const words = text.toLowerCase().split(/\s+/).slice(0, 3);
+  for (const section of sections) {
+    const sectionWords = section.text.toLowerCase();
+    if (words.some(word => sectionWords.includes(word))) {
+      return section.name;
+    }
+  }
+  return "Verse";
+}
+
+export function TimestampPanel({ sections = [] }: TimestampPanelProps) {
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [timestamps, setTimestamps] = useState<Timestamp[]>([]);
