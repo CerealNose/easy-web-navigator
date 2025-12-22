@@ -235,8 +235,11 @@ export function TimestampPanel() {
                 className="flex items-center gap-4 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors animate-fade-in"
                 style={{ animationDelay: `${index * 50}ms` }}
               >
-                <span className="font-mono text-sm text-secondary min-w-[100px]">
+                <span className="font-mono text-sm text-secondary min-w-[80px]">
                   {ts.time}
+                </span>
+                <span className="font-mono text-xs text-muted-foreground min-w-[50px]">
+                  {(ts.end - ts.start).toFixed(1)}s
                 </span>
                 <span className="text-sm text-foreground flex-1">
                   {ts.text}
