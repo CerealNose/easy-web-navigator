@@ -58,7 +58,7 @@ Deno.serve(async (req) => {
       {
         input: {
           audio: dataUrl,
-          model: "large-v3",
+          model: "medium",
           translate: false,
           temperature: 0,
           transcription: "plain text",
