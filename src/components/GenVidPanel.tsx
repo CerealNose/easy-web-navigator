@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Video, Play, Download, Settings, Loader2, ImageIcon, Film, Clock, Layers, Upload, FileJson, FileText, Images, X, AlertCircle, Music, Sparkles } from "lucide-react";
+import { Video, Play, Download, Settings, Loader2, ImageIcon, Film, Clock, Layers, Upload, FileJson, FileText, Images, X, AlertCircle, Music, Sparkles, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { VideoPreviewPlayer } from "./VideoPreviewPlayer";
@@ -41,7 +41,8 @@ interface GeneratedScene {
   imageUrl?: string;
   videoUrl?: string;
   uploadedImage?: string; // Base64 or object URL for uploaded images
-  status: 'pending' | 'generating-image' | 'generating-video' | 'complete' | 'error';
+  predictionId?: string; // Store Replicate prediction ID for manual status checks
+  status: 'pending' | 'generating-image' | 'generating-video' | 'processing' | 'complete' | 'error';
 }
 
 interface UploadedImage {
@@ -623,8 +624,12 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
           
           if (!videoUrl) {
             console.warn(`Scene ${i + 1} timed out after ${attempts} attempts. Prediction ID: ${predictionId}`);
-            toast.warning(`Scene ${i + 1} timed out. Video may still be processing on Replicate.`);
-            // Don't throw - just continue to next scene
+            toast.warning(`Scene ${i + 1} timed out. Use "Check Status" button to retrieve when ready.`);
+            // Store prediction ID and mark as processing so user can check later
+            setScenes(prev => prev.map((s, idx) => 
+              idx === i ? { ...s, predictionId, status: 'processing' } : s
+            ));
+            // Continue to next scene
             continue;
           }
 
@@ -648,6 +653,48 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
 
     setIsGenerating(false);
     toast.success("Video generation complete!");
+  };
+
+  // Check status of a specific scene by its prediction ID
+  const checkSceneStatus = async (sceneIndex: number) => {
+    const scene = scenes[sceneIndex];
+    if (!scene.predictionId) {
+      toast.error("No prediction ID for this scene");
+      return;
+    }
+
+    toast.info(`Checking status for scene ${sceneIndex + 1}...`);
+    
+    try {
+      const res = await supabase.functions.invoke("generate-video", {
+        body: { predictionId: scene.predictionId }
+      });
+      
+      if (res.error) {
+        toast.error(`Error checking status: ${res.error.message}`);
+        return;
+      }
+      
+      const status = res.data?.status;
+      console.log(`Scene ${sceneIndex + 1} status:`, status, res.data);
+      
+      if (status === "succeeded" && res.data?.videoUrl) {
+        setScenes(prev => prev.map((s, idx) => 
+          idx === sceneIndex ? { ...s, videoUrl: res.data.videoUrl, status: 'complete' } : s
+        ));
+        toast.success(`Scene ${sceneIndex + 1} video retrieved!`);
+      } else if (status === "failed") {
+        setScenes(prev => prev.map((s, idx) => 
+          idx === sceneIndex ? { ...s, status: 'error' } : s
+        ));
+        toast.error(`Scene ${sceneIndex + 1} failed on Replicate`);
+      } else {
+        toast.info(`Scene ${sceneIndex + 1} still ${status}. Try again in a minute.`);
+      }
+    } catch (error: any) {
+      console.error("Check status error:", error);
+      toast.error(`Failed to check status: ${error.message}`);
+    }
   };
 
   const downloadAllVideos = () => {
@@ -1310,6 +1357,26 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
                       <span className="text-xs">
                         {scene.status === 'generating-image' ? 'Generating image...' : 'Generating video...'}
                       </span>
+                    </div>
+                  )}
+                  {scene.status === 'processing' && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80">
+                      {scene.imageUrl && (
+                        <img src={scene.imageUrl} alt={scene.section} className="absolute inset-0 w-full h-full object-cover opacity-50" />
+                      )}
+                      <div className="relative z-10 flex flex-col items-center">
+                        <Clock className="w-6 h-6 text-yellow-500 mb-2" />
+                        <span className="text-xs text-yellow-500 mb-2">Processing on Replicate</span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => checkSceneStatus(index)}
+                          className="text-xs"
+                        >
+                          <RefreshCw className="w-3 h-3 mr-1" />
+                          Check Status
+                        </Button>
+                      </div>
                     </div>
                   )}
                   {scene.imageUrl && !scene.videoUrl && scene.status === 'complete' && (
