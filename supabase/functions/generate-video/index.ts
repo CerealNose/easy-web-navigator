@@ -22,7 +22,7 @@ Deno.serve(async (req) => {
       auth: REPLICATE_API_KEY,
     });
 
-    const { imageUrl, prompt, duration = 5 } = await req.json();
+    const { imageUrl, prompt, duration = 5, maxArea = "720p", fps = 24 } = await req.json();
 
     if (!imageUrl) {
       return new Response(
@@ -34,6 +34,12 @@ Deno.serve(async (req) => {
     console.log("Generating video from image:", imageUrl.substring(0, 50) + "...");
     console.log("Prompt:", prompt);
     console.log("Duration:", duration);
+    console.log("Max Area:", maxArea);
+    console.log("FPS:", fps);
+
+    // Calculate frame count based on duration and FPS
+    // WAN 2.1 max frames: 81 (at 16fps = ~5s, at 24fps = ~3.4s)
+    const frameNum = Math.min(Math.round(duration * fps), 81);
 
     // Use Wan 2.1 Image-to-Video model
     const output = await replicate.run(
@@ -42,9 +48,9 @@ Deno.serve(async (req) => {
         input: {
           image: imageUrl,
           prompt: prompt || "cinematic motion, slow camera movement, atmospheric",
-          max_area: "720p",
+          max_area: maxArea,
           fast_mode: "Balanced",
-          frame_num: Math.min(duration * 24, 81), // Up to ~3.4 seconds at 24fps (81 frames max)
+          frame_num: frameNum,
           sample_shift: 8,
           sample_steps: 30,
           sample_guide_scale: 5
