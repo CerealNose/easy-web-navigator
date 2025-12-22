@@ -2,11 +2,14 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
-import { Sparkles, FileText, Zap } from "lucide-react";
+import { Sparkles, FileText, Zap, AlertCircle } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 interface Theme {
   name: string;
-  count: number;
+  intensity?: number;
+  count?: number;
   color: string;
 }
 
@@ -17,28 +20,42 @@ interface LyricsAnalyzerProps {
 export function LyricsAnalyzer({ onAnalyze }: LyricsAnalyzerProps) {
   const [lyrics, setLyrics] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const analyzeLyrics = () => {
+  const analyzeLyrics = async () => {
     if (!lyrics.trim()) return;
     
     setIsAnalyzing(true);
+    setError(null);
     
-    // Simulate analysis
-    setTimeout(() => {
-      const lowerLyrics = lyrics.toLowerCase();
-      const themes: Theme[] = [
-        { name: "love", count: (lowerLyrics.match(/love/g) || []).length, color: "from-pink-500 to-red-500" },
-        { name: "heart", count: (lowerLyrics.match(/heart/g) || []).length, color: "from-red-500 to-orange-500" },
-        { name: "night", count: (lowerLyrics.match(/night/g) || []).length, color: "from-indigo-500 to-purple-500" },
-        { name: "dream", count: (lowerLyrics.match(/dream/g) || []).length, color: "from-purple-500 to-pink-500" },
-        { name: "soul", count: (lowerLyrics.match(/soul/g) || []).length, color: "from-cyan-500 to-blue-500" },
-      ].filter(t => t.count > 0);
+    try {
+      const { data, error: fnError } = await supabase.functions.invoke("analyze-lyrics", {
+        body: { lyrics: lyrics.trim() }
+      });
 
-      const moodPrompt = `moody neon city night, glowing red heart on chain leash, rainy street reflection, emotional silhouette, cinematic lighting, 720p, emotional distance, urban isolation, blue purple neon glow`;
-      
-      onAnalyze(moodPrompt, themes);
+      if (fnError) {
+        throw new Error(fnError.message);
+      }
+
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      const themes: Theme[] = (data.themes || []).map((t: { name: string; intensity?: number; color?: string }) => ({
+        name: t.name,
+        intensity: t.intensity || 3,
+        color: t.color || "from-purple-500 to-pink-500"
+      }));
+
+      onAnalyze(data.moodPrompt || "", themes);
+      toast.success("Lyrics analyzed successfully!");
+    } catch (err) {
+      console.error("Analysis error:", err);
+      setError(err instanceof Error ? err.message : "Failed to analyze lyrics");
+      toast.error("Failed to analyze lyrics");
+    } finally {
       setIsAnalyzing(false);
-    }, 1500);
+    }
   };
 
   return (
@@ -60,6 +77,15 @@ Love echoes through the streets..."
           className="min-h-[200px] bg-muted/30 border-border focus:border-primary focus:ring-primary/20 resize-none font-mono text-sm"
         />
       </div>
+
+      {error && (
+        <Card className="p-3 border-destructive/50 bg-destructive/10">
+          <div className="flex items-center gap-2 text-sm text-destructive">
+            <AlertCircle className="w-4 h-4" />
+            {error}
+          </div>
+        </Card>
+      )}
 
       <div className="flex items-center gap-4">
         <Button
@@ -84,7 +110,7 @@ Love echoes through the streets..."
 
         <div className="hidden sm:flex items-center gap-2 text-sm text-muted-foreground">
           <Zap className="w-4 h-4 text-secondary" />
-          AI-powered theme detection
+          Real AI-powered analysis
         </div>
       </div>
 
@@ -92,8 +118,8 @@ Love echoes through the streets..."
         <h3 className="text-sm font-medium text-muted-foreground mb-2">How it works</h3>
         <ul className="text-sm text-muted-foreground/80 space-y-1">
           <li>• Paste your song lyrics above</li>
-          <li>• AI detects emotional themes & keywords</li>
-          <li>• Generates a cinematic mood prompt</li>
+          <li>• AI detects emotional themes & moods</li>
+          <li>• Generates a cinematic image prompt</li>
           <li>• Use the prompt to create matching visuals</li>
         </ul>
       </Card>
