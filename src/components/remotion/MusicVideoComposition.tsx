@@ -1,11 +1,11 @@
 import { AbsoluteFill, Audio, Sequence } from "remotion";
-import { KenBurnsScene } from "./KenBurnsScene";
+import { SceneWithMotion, MotionType } from "./KenBurnsScene";
 
 export interface SceneData {
   imageUrl: string;
   startFrame: number;
   durationInFrames: number;
-  motionType: "zoomIn" | "zoomOut" | "panLeft" | "panRight" | "panUp" | "panDown";
+  motionType: MotionType;
   sectionName: string;
 }
 
@@ -14,8 +14,10 @@ export interface MusicVideoCompositionProps extends Record<string, unknown> {
   audioUrl?: string;
 }
 
-const MOTION_TYPES: SceneData["motionType"][] = [
-  "zoomIn", "panRight", "zoomOut", "panLeft", "panUp", "panDown"
+// Varied motion types for cinematic feel
+const MOTION_TYPES: MotionType[] = [
+  "zoomIn", "panRight", "static", "diagonalPan", "zoomOut", 
+  "breathe", "panLeft", "rotateZoomIn", "panUp", "panDown"
 ];
 
 export const MusicVideoComposition: React.FC<MusicVideoCompositionProps> = ({ 
@@ -37,7 +39,7 @@ export const MusicVideoComposition: React.FC<MusicVideoCompositionProps> = ({
           durationInFrames={scene.durationInFrames}
           name={scene.sectionName}
         >
-          <KenBurnsScene
+          <SceneWithMotion
             imageUrl={scene.imageUrl}
             motionType={scene.motionType || MOTION_TYPES[index % MOTION_TYPES.length]}
           />
