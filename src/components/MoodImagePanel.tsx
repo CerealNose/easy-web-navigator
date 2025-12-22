@@ -2,9 +2,16 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { Image, Copy, Download, Wand2, Check, Loader2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Image, Copy, Download, Wand2, Check, Loader2, Video, Play } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface Theme {
   name: string;
@@ -23,6 +30,12 @@ export function MoodImagePanel({ prompt, themes, onPromptChange }: MoodImagePane
   const [copied, setCopied] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
+  
+  // Video generation state
+  const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
+  const [generatedVideo, setGeneratedVideo] = useState<string | null>(null);
+  const [videoPrompt, setVideoPrompt] = useState("cinematic motion, slow camera movement, atmospheric");
+  const [videoPreviewOpen, setVideoPreviewOpen] = useState(false);
 
   const copyPrompt = async () => {
     await navigator.clipboard.writeText(prompt);
@@ -47,12 +60,42 @@ export function MoodImagePanel({ prompt, themes, onPromptChange }: MoodImagePane
       if (data.error) throw new Error(data.error);
 
       setGeneratedImage(data.imageUrl);
+      setGeneratedVideo(null); // Reset video when new image is generated
       toast.success("Image generated successfully!");
     } catch (err) {
       console.error("Image generation error:", err);
       toast.error(err instanceof Error ? err.message : "Failed to generate image");
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const generateVideo = async () => {
+    if (!generatedImage) {
+      toast.error("Please generate an image first");
+      return;
+    }
+
+    setIsGeneratingVideo(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("generate-video", {
+        body: { 
+          imageUrl: generatedImage,
+          prompt: videoPrompt,
+          duration: 3
+        }
+      });
+
+      if (error) throw new Error(error.message);
+      if (data.error) throw new Error(data.error);
+
+      setGeneratedVideo(data.videoUrl);
+      toast.success("Video generated successfully!");
+    } catch (err) {
+      console.error("Video generation error:", err);
+      toast.error(err instanceof Error ? err.message : "Failed to generate video");
+    } finally {
+      setIsGeneratingVideo(false);
     }
   };
 
@@ -73,6 +116,26 @@ export function MoodImagePanel({ prompt, themes, onPromptChange }: MoodImagePane
       toast.success("Image downloaded!");
     } catch {
       toast.error("Failed to download image");
+    }
+  };
+
+  const downloadVideo = async () => {
+    if (!generatedVideo) return;
+    
+    try {
+      const response = await fetch(generatedVideo);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "mood-video.mp4";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success("Video downloaded!");
+    } catch {
+      toast.error("Failed to download video");
     }
   };
 
@@ -135,7 +198,7 @@ export function MoodImagePanel({ prompt, themes, onPromptChange }: MoodImagePane
         </div>
       </div>
 
-      {/* Preview Area */}
+      {/* Image Preview Area */}
       <Card className="aspect-video relative overflow-hidden glass-card border-border/50 group">
         {generatedImage ? (
           <>
@@ -144,7 +207,7 @@ export function MoodImagePanel({ prompt, themes, onPromptChange }: MoodImagePane
               alt="Generated mood image" 
               className="w-full h-full object-cover"
             />
-            <div className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
               <Button variant="glass" size="sm" onClick={downloadImage}>
                 <Download className="w-4 h-4" />
                 Download
@@ -169,12 +232,119 @@ export function MoodImagePanel({ prompt, themes, onPromptChange }: MoodImagePane
         )}
       </Card>
 
+      {/* Video Generation Section */}
+      {generatedImage && (
+        <Card className="p-4 glass-card border-border/50 space-y-4">
+          <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+            <Video className="w-4 h-4" />
+            Generate Video from Image
+          </h3>
+          
+          <div className="space-y-2">
+            <label className="text-xs text-muted-foreground/60">Motion Prompt</label>
+            <Input
+              value={videoPrompt}
+              onChange={(e) => setVideoPrompt(e.target.value)}
+              placeholder="cinematic motion, slow camera movement..."
+              className="font-mono text-sm bg-muted/30"
+            />
+          </div>
+
+          <div className="flex gap-2">
+            <Button 
+              variant="neon" 
+              size="sm" 
+              onClick={generateVideo} 
+              disabled={isGeneratingVideo}
+            >
+              {isGeneratingVideo ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Generating Video...
+                </>
+              ) : (
+                <>
+                  <Video className="w-4 h-4" />
+                  Generate Video
+                </>
+              )}
+            </Button>
+            
+            {generatedVideo && (
+              <>
+                <Button variant="glass" size="sm" onClick={() => setVideoPreviewOpen(true)}>
+                  <Play className="w-4 h-4" />
+                  Preview
+                </Button>
+                <Button variant="glass" size="sm" onClick={downloadVideo}>
+                  <Download className="w-4 h-4" />
+                  Download
+                </Button>
+              </>
+            )}
+          </div>
+
+          {/* Video Thumbnail Preview */}
+          {generatedVideo && (
+            <div 
+              className="relative aspect-video rounded-lg overflow-hidden cursor-pointer group"
+              onClick={() => setVideoPreviewOpen(true)}
+            >
+              <video 
+                src={generatedVideo} 
+                className="w-full h-full object-cover"
+                muted
+                loop
+                playsInline
+                onMouseEnter={(e) => e.currentTarget.play()}
+                onMouseLeave={(e) => {
+                  e.currentTarget.pause();
+                  e.currentTarget.currentTime = 0;
+                }}
+              />
+              <div className="absolute inset-0 flex items-center justify-center bg-background/20 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="w-12 h-12 rounded-full bg-primary/80 flex items-center justify-center">
+                  <Play className="w-6 h-6 text-primary-foreground fill-current" />
+                </div>
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* Video Preview Dialog */}
+      <Dialog open={videoPreviewOpen} onOpenChange={setVideoPreviewOpen}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Video Preview</DialogTitle>
+          </DialogHeader>
+          {generatedVideo && (
+            <div className="space-y-4">
+              <video 
+                src={generatedVideo} 
+                controls 
+                autoPlay
+                loop
+                className="w-full rounded-lg"
+              />
+              <div className="flex justify-end gap-2">
+                <Button variant="glass" onClick={downloadVideo}>
+                  <Download className="w-4 h-4" />
+                  Download Video
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <Card className="p-4 glass-card border-border/50">
-        <h3 className="text-sm font-medium text-muted-foreground mb-2">Powered by FLUX Schnell</h3>
+        <h3 className="text-sm font-medium text-muted-foreground mb-2">Powered by FLUX & WAN 2.1</h3>
         <ul className="text-sm text-muted-foreground/80 space-y-1">
-          <li>• 720p (16:9) cinematic output</li>
-          <li>• ~$0.003 per image</li>
-          <li>• Fast 4-step inference</li>
+          <li>• FLUX Schnell: 720p (16:9) cinematic images</li>
+          <li>• WAN 2.1 I2V: Image-to-video animation</li>
+          <li>• Up to 81 frames (~3.4 seconds at 24fps)</li>
+          <li>• Hover video thumbnail to preview</li>
         </ul>
       </Card>
     </div>
