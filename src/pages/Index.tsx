@@ -18,6 +18,11 @@ interface Section {
   text: string;
 }
 
+interface SectionPrompt {
+  section: string;
+  prompt: string;
+}
+
 interface Timestamp {
   time: string;
   text: string;
@@ -31,12 +36,14 @@ const Index = () => {
   const [moodPrompt, setMoodPrompt] = useState("");
   const [themes, setThemes] = useState<Theme[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
+  const [sectionPrompts, setSectionPrompts] = useState<SectionPrompt[]>([]);
   const [timestamps, setTimestamps] = useState<Timestamp[]>([]);
 
-  const handleAnalyze = (prompt: string, detectedThemes: Theme[], detectedSections: Section[]) => {
+  const handleAnalyze = (prompt: string, detectedThemes: Theme[], detectedSections: Section[], detectedSectionPrompts: SectionPrompt[]) => {
     setMoodPrompt(prompt);
     setThemes(detectedThemes);
     setSections(detectedSections);
+    setSectionPrompts(detectedSectionPrompts);
     setActiveTab("mood");
   };
 
@@ -111,7 +118,7 @@ const Index = () => {
               />
             )}
             {activeTab === "genvid" && (
-              <GenVidPanel sections={sections} timestamps={timestamps} moodPrompt={moodPrompt} />
+              <GenVidPanel sections={sections} timestamps={timestamps} moodPrompt={moodPrompt} sectionPrompts={sectionPrompts} />
             )}
           </section>
         </div>

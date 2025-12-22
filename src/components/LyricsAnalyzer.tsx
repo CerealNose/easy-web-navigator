@@ -18,8 +18,13 @@ interface Section {
   text: string;
 }
 
+interface SectionPrompt {
+  section: string;
+  prompt: string;
+}
+
 interface LyricsAnalyzerProps {
-  onAnalyze: (prompt: string, themes: Theme[], sections: Section[]) => void;
+  onAnalyze: (prompt: string, themes: Theme[], sections: Section[], sectionPrompts: SectionPrompt[]) => void;
 }
 
 // Parse [Section] markers from lyrics
@@ -86,8 +91,10 @@ export function LyricsAnalyzer({ onAnalyze }: LyricsAnalyzerProps) {
         color: t.color || "from-purple-500 to-pink-500"
       }));
 
-      onAnalyze(data.moodPrompt || "", themes, sections);
-      toast.success(`Analyzed ${sections.length} sections!`);
+      const sectionPrompts: SectionPrompt[] = data.sectionPrompts || [];
+      
+      onAnalyze(data.moodPrompt || "", themes, sections, sectionPrompts);
+      toast.success(`Analyzed ${sections.length} sections with unique prompts!`);
     } catch (err) {
       console.error("Analysis error:", err);
       setError(err instanceof Error ? err.message : "Failed to analyze lyrics");
