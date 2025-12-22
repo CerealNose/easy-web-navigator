@@ -17,15 +17,18 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    const { imageUrl, prompt, duration = 6, resolution = "720P", taskId } = body;
+    const { imageUrl, prompt, duration = 6, resolution = "720P", taskId, predictionId } = body;
+
+    // Support both taskId (new Minimax) and predictionId (legacy Replicate) parameter names
+    const videoTaskId = taskId || predictionId;
 
     // Check if this is a status check request
-    if (taskId) {
-      console.log("Checking task status:", taskId);
+    if (videoTaskId) {
+      console.log("Checking task status:", videoTaskId);
       
       // Query task status
       const queryResponse = await fetch(
-        `https://api.minimax.io/v1/query/video_generation?task_id=${taskId}`,
+        `https://api.minimax.io/v1/query/video_generation?task_id=${videoTaskId}`,
         {
           method: "GET",
           headers: {
@@ -76,7 +79,7 @@ Deno.serve(async (req) => {
       } else {
         // Still processing (Preparing, Queueing, Processing)
         return new Response(
-          JSON.stringify({ status: status.toLowerCase(), taskId }),
+          JSON.stringify({ status: status.toLowerCase(), taskId: videoTaskId }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
