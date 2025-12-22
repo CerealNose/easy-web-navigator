@@ -111,7 +111,7 @@ const Index = () => {
               />
             )}
             {activeTab === "genvid" && (
-              <GenVidPanel sections={sections} timestamps={timestamps} />
+              <GenVidPanel sections={sections} timestamps={timestamps} moodPrompt={moodPrompt} />
             )}
           </section>
         </div>
