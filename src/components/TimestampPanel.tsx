@@ -32,6 +32,7 @@ export function TimestampPanel() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [timestamps, setTimestamps] = useState<Timestamp[]>([]);
   const [fullTranscript, setFullTranscript] = useState("");
+  const [promptTemplate, setPromptTemplate] = useState("cinematic scene of {text}, moody night city lights, emotional closeup, 720p");
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -136,7 +137,7 @@ export function TimestampPanel() {
         start: startSec,
         end: endSec,
         text: ts.text.trim(),
-        prompt: `cinematic scene of ${ts.text}, moody night city lights, emotional closeup, 720p`
+        prompt: promptTemplate.replace("{text}", ts.text.trim())
       };
     });
 
@@ -247,6 +248,20 @@ export function TimestampPanel() {
               </div>
             ))}
           </div>
+        </Card>
+      )}
+
+      {/* Prompt Template */}
+      {timestamps.length > 0 && (
+        <Card className="p-4 glass-card border-border/50">
+          <h3 className="text-sm font-medium text-muted-foreground mb-2">Prompt Template</h3>
+          <p className="text-xs text-muted-foreground/60 mb-2">Use {"{text}"} as placeholder for lyrics</p>
+          <Input
+            value={promptTemplate}
+            onChange={(e) => setPromptTemplate(e.target.value)}
+            placeholder="cinematic scene of {text}, moody lighting, 720p"
+            className="font-mono text-sm"
+          />
         </Card>
       )}
 
