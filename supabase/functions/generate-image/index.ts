@@ -22,7 +22,7 @@ Deno.serve(async (req) => {
       auth: REPLICATE_API_KEY,
     });
 
-    const { prompt } = await req.json();
+    const { prompt, seed, width, height } = await req.json();
 
     if (!prompt || typeof prompt !== "string") {
       return new Response(
@@ -31,17 +31,34 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Use provided seed or generate a random one
+    const useSeed = seed ?? Math.floor(Math.random() * 2147483647);
+    
     console.log("Generating image with prompt:", prompt);
+    console.log("Using seed:", useSeed);
+    console.log("Dimensions:", width, "x", height);
 
-    // FLUX Schnell for 720p (1280x720)
+    // Determine aspect ratio from dimensions or default to 16:9
+    let aspectRatio = "16:9";
+    if (width && height) {
+      const ratio = width / height;
+      if (Math.abs(ratio - 1) < 0.1) aspectRatio = "1:1";
+      else if (Math.abs(ratio - 16/9) < 0.1) aspectRatio = "16:9";
+      else if (Math.abs(ratio - 9/16) < 0.1) aspectRatio = "9:16";
+      else if (Math.abs(ratio - 4/3) < 0.1) aspectRatio = "4:3";
+      else if (Math.abs(ratio - 3/4) < 0.1) aspectRatio = "3:4";
+    }
+
+    // FLUX Schnell with seed for consistency
     const output = await replicate.run(
       "black-forest-labs/flux-schnell",
       {
         input: {
           prompt: prompt,
+          seed: useSeed,
           go_fast: true,
           num_outputs: 1,
-          aspect_ratio: "16:9",
+          aspect_ratio: aspectRatio,
           output_format: "webp",
           output_quality: 80,
           num_inference_steps: 4
@@ -55,7 +72,7 @@ Deno.serve(async (req) => {
     const imageUrl = Array.isArray(output) ? output[0] : output;
 
     return new Response(
-      JSON.stringify({ imageUrl }),
+      JSON.stringify({ imageUrl, seed: useSeed }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
