@@ -41,7 +41,7 @@ interface GeneratedScene {
   imageUrl?: string;
   videoUrl?: string;
   uploadedImage?: string; // Base64 or object URL for uploaded images
-  predictionId?: string; // Store Replicate prediction ID for manual status checks
+  taskId?: string; // Store Minimax task ID for manual status checks
   status: 'pending' | 'generating-image' | 'generating-video' | 'processing' | 'complete' | 'error';
 }
 
@@ -577,12 +577,12 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
           }
           
           // Poll for video completion - videos can take 3-5 minutes
-          const predictionId = videoRes.data.predictionId;
+          const taskId = videoRes.data.taskId;
           let videoUrl: string | null = null;
           let attempts = 0;
           const maxAttempts = 90; // ~7.5 minutes max (5s intervals)
           
-          toast.info(`Scene ${i + 1}: Video generating (ID: ${predictionId.slice(0, 8)}...)`, {
+          toast.info(`Scene ${i + 1}: Video generating (ID: ${taskId.slice(0, 8)}...)`, {
             duration: 10000,
           });
           
@@ -591,7 +591,7 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
             
             try {
               const pollRes = await supabase.functions.invoke("generate-video", {
-                body: { predictionId }
+                body: { taskId }
               });
               
               // Handle any error by just continuing to poll
@@ -609,12 +609,12 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
                 videoUrl = pollRes.data.videoUrl;
                 console.log(`Scene ${i + 1} video ready:`, videoUrl);
               } else if (status === "failed") {
-                throw new Error(pollRes.data.error || "Video generation failed on Replicate");
+                throw new Error(pollRes.data.error || "Video generation failed on Minimax");
               }
-              // For "starting" or "processing", just continue polling
+              // For "preparing", "queueing", or "processing", just continue polling
             } catch (pollError: any) {
-              // Only throw if it's a definite failure from Replicate
-              if (pollError.message?.includes("failed on Replicate")) {
+              // Only throw if it's a definite failure from Minimax
+              if (pollError.message?.includes("failed on Minimax")) {
                 throw pollError;
               }
               console.error("Poll error (will retry):", pollError);
@@ -623,11 +623,11 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
           }
           
           if (!videoUrl) {
-            console.warn(`Scene ${i + 1} timed out after ${attempts} attempts. Prediction ID: ${predictionId}`);
+            console.warn(`Scene ${i + 1} timed out after ${attempts} attempts. Task ID: ${taskId}`);
             toast.warning(`Scene ${i + 1} timed out. Use "Check Status" button to retrieve when ready.`);
-            // Store prediction ID and mark as processing so user can check later
+            // Store task ID and mark as processing so user can check later
             setScenes(prev => prev.map((s, idx) => 
-              idx === i ? { ...s, predictionId, status: 'processing' } : s
+              idx === i ? { ...s, taskId, status: 'processing' } : s
             ));
             // Continue to next scene
             continue;
@@ -655,11 +655,11 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
     toast.success("Video generation complete!");
   };
 
-  // Check status of a specific scene by its prediction ID
+  // Check status of a specific scene by its task ID
   const checkSceneStatus = async (sceneIndex: number) => {
     const scene = scenes[sceneIndex];
-    if (!scene.predictionId) {
-      toast.error("No prediction ID for this scene");
+    if (!scene.taskId) {
+      toast.error("No task ID for this scene");
       return;
     }
 
@@ -667,7 +667,7 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
     
     try {
       const res = await supabase.functions.invoke("generate-video", {
-        body: { predictionId: scene.predictionId }
+        body: { taskId: scene.taskId }
       });
       
       if (res.error) {
@@ -687,7 +687,7 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
         setScenes(prev => prev.map((s, idx) => 
           idx === sceneIndex ? { ...s, status: 'error' } : s
         ));
-        toast.error(`Scene ${sceneIndex + 1} failed on Replicate`);
+        toast.error(`Scene ${sceneIndex + 1} failed on Minimax`);
       } else {
         toast.info(`Scene ${sceneIndex + 1} still ${status}. Try again in a minute.`);
       }
@@ -703,7 +703,7 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
   const checkAllProcessingScenes = async () => {
     const processingScenes = scenes
       .map((s, i) => ({ scene: s, index: i }))
-      .filter(({ scene }) => scene.status === 'processing' && scene.predictionId);
+      .filter(({ scene }) => scene.status === 'processing' && scene.taskId);
     
     if (processingScenes.length === 0) {
       toast.info("No scenes currently processing");
@@ -720,7 +720,7 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
     for (const { scene, index } of processingScenes) {
       try {
         const res = await supabase.functions.invoke("generate-video", {
-          body: { predictionId: scene.predictionId }
+          body: { taskId: scene.taskId }
         });
         
         if (res.error) {

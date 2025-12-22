@@ -1,7 +1,5 @@
 /// <reference types="https://esm.sh/@supabase/functions-js/src/edge-runtime.d.ts" />
 
-import Replicate from "https://esm.sh/replicate@0.25.2";
-
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -13,37 +11,72 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const REPLICATE_API_KEY = Deno.env.get("REPLICATE_API_KEY");
-    if (!REPLICATE_API_KEY) {
-      throw new Error("REPLICATE_API_KEY is not configured");
+    const MINIMAX_API_KEY = Deno.env.get("MINIMAX_API_KEY");
+    if (!MINIMAX_API_KEY) {
+      throw new Error("MINIMAX_API_KEY is not configured");
     }
 
-    const replicate = new Replicate({
-      auth: REPLICATE_API_KEY,
-    });
-
     const body = await req.json();
-    const { imageUrl, prompt, duration = 5, maxArea = "720p", fps = 24, predictionId } = body;
+    const { imageUrl, prompt, duration = 6, resolution = "720P", taskId } = body;
 
     // Check if this is a status check request
-    if (predictionId) {
-      console.log("Checking prediction status:", predictionId);
-      const prediction = await replicate.predictions.get(predictionId);
-      console.log("Prediction status:", prediction.status);
+    if (taskId) {
+      console.log("Checking task status:", taskId);
       
-      if (prediction.status === "succeeded") {
-        return new Response(
-          JSON.stringify({ videoUrl: prediction.output, status: "succeeded" }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      // Query task status
+      const queryResponse = await fetch(
+        `https://api.minimax.io/v1/query/video_generation?task_id=${taskId}`,
+        {
+          method: "GET",
+          headers: {
+            "Authorization": `Bearer ${MINIMAX_API_KEY}`,
+          },
+        }
+      );
+      
+      const queryData = await queryResponse.json();
+      console.log("Task status response:", JSON.stringify(queryData));
+      
+      const status = queryData.status;
+      
+      if (status === "Success" && queryData.file_id) {
+        // Get the download URL for the video
+        const fileResponse = await fetch(
+          `https://api.minimax.io/v1/files/retrieve?file_id=${queryData.file_id}`,
+          {
+            method: "GET",
+            headers: {
+              "Authorization": `Bearer ${MINIMAX_API_KEY}`,
+            },
+          }
         );
-      } else if (prediction.status === "failed") {
+        
+        const fileData = await fileResponse.json();
+        console.log("File retrieve response:", JSON.stringify(fileData));
+        
+        if (fileData.file?.download_url) {
+          return new Response(
+            JSON.stringify({ 
+              videoUrl: fileData.file.download_url, 
+              status: "succeeded" 
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        } else {
+          throw new Error("Failed to get download URL");
+        }
+      } else if (status === "Fail") {
         return new Response(
-          JSON.stringify({ error: prediction.error || "Video generation failed", status: "failed" }),
+          JSON.stringify({ 
+            error: queryData.base_resp?.status_msg || "Video generation failed", 
+            status: "failed" 
+          }),
           { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       } else {
+        // Still processing (Preparing, Queueing, Processing)
         return new Response(
-          JSON.stringify({ status: prediction.status, predictionId }),
+          JSON.stringify({ status: status.toLowerCase(), taskId }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
@@ -60,33 +93,37 @@ Deno.serve(async (req) => {
     console.log("Generating video from image:", imageUrl.substring(0, 50) + "...");
     console.log("Prompt:", prompt);
     console.log("Duration:", duration);
-    console.log("Max Area:", maxArea);
-    console.log("FPS:", fps);
+    console.log("Resolution:", resolution);
 
-    // Calculate frame count based on duration and FPS
-    // WAN 2.1 max frames: 81 (at 16fps = ~5s, at 24fps = ~3.4s)
-    const frameNum = Math.min(Math.round(duration * fps), 81);
-
-    // Start async video generation (don't wait for completion)
-    console.log("Starting async video generation...");
-    const prediction = await replicate.predictions.create({
-      model: "wavespeedai/wan-2.1-i2v-480p",
-      input: {
-        image: imageUrl,
+    // Start async video generation with Minimax
+    const generateResponse = await fetch("https://api.minimax.io/v1/video_generation", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${MINIMAX_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "I2V-01-Director",
+        first_frame_image: imageUrl,
         prompt: prompt || "cinematic motion, slow camera movement, atmospheric",
-        max_area: maxArea,
-        fast_mode: "Balanced",
-        frame_num: frameNum,
-        sample_shift: 8,
-        sample_steps: 30,
-        sample_guide_scale: 5
-      }
+        prompt_optimizer: true,
+      }),
     });
 
-    console.log("Prediction started:", prediction.id);
+    const generateData = await generateResponse.json();
+    console.log("Generation response:", JSON.stringify(generateData));
+
+    if (generateData.base_resp?.status_code !== 0) {
+      throw new Error(generateData.base_resp?.status_msg || "Failed to start video generation");
+    }
+
+    console.log("Task started:", generateData.task_id);
 
     return new Response(
-      JSON.stringify({ predictionId: prediction.id, status: prediction.status }),
+      JSON.stringify({ 
+        taskId: generateData.task_id, 
+        status: "processing" 
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
