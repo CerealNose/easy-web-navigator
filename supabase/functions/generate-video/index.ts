@@ -22,8 +22,34 @@ Deno.serve(async (req) => {
       auth: REPLICATE_API_KEY,
     });
 
-    const { imageUrl, prompt, duration = 5, maxArea = "720p", fps = 24 } = await req.json();
+    const body = await req.json();
+    const { imageUrl, prompt, duration = 5, maxArea = "720p", fps = 24, predictionId } = body;
 
+    // Check if this is a status check request
+    if (predictionId) {
+      console.log("Checking prediction status:", predictionId);
+      const prediction = await replicate.predictions.get(predictionId);
+      console.log("Prediction status:", prediction.status);
+      
+      if (prediction.status === "succeeded") {
+        return new Response(
+          JSON.stringify({ videoUrl: prediction.output, status: "succeeded" }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      } else if (prediction.status === "failed") {
+        return new Response(
+          JSON.stringify({ error: prediction.error || "Video generation failed", status: "failed" }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      } else {
+        return new Response(
+          JSON.stringify({ status: prediction.status, predictionId }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
+    // New video generation request
     if (!imageUrl) {
       return new Response(
         JSON.stringify({ error: "Image URL is required" }),
@@ -41,27 +67,26 @@ Deno.serve(async (req) => {
     // WAN 2.1 max frames: 81 (at 16fps = ~5s, at 24fps = ~3.4s)
     const frameNum = Math.min(Math.round(duration * fps), 81);
 
-    // Use Wan 2.1 Image-to-Video model
-    const output = await replicate.run(
-      "wavespeedai/wan-2.1-i2v-480p",
-      {
-        input: {
-          image: imageUrl,
-          prompt: prompt || "cinematic motion, slow camera movement, atmospheric",
-          max_area: maxArea,
-          fast_mode: "Balanced",
-          frame_num: frameNum,
-          sample_shift: 8,
-          sample_steps: 30,
-          sample_guide_scale: 5
-        }
+    // Start async video generation (don't wait for completion)
+    console.log("Starting async video generation...");
+    const prediction = await replicate.predictions.create({
+      model: "wavespeedai/wan-2.1-i2v-480p",
+      input: {
+        image: imageUrl,
+        prompt: prompt || "cinematic motion, slow camera movement, atmospheric",
+        max_area: maxArea,
+        fast_mode: "Balanced",
+        frame_num: frameNum,
+        sample_shift: 8,
+        sample_steps: 30,
+        sample_guide_scale: 5
       }
-    );
+    });
 
-    console.log("Video generation complete:", output);
+    console.log("Prediction started:", prediction.id);
 
     return new Response(
-      JSON.stringify({ videoUrl: output }),
+      JSON.stringify({ predictionId: prediction.id, status: prediction.status }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 

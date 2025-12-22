@@ -70,6 +70,32 @@ export function MoodImagePanel({ prompt, themes, onPromptChange }: MoodImagePane
     }
   };
 
+  const pollForVideoCompletion = async (predictionId: string): Promise<string> => {
+    const maxAttempts = 120; // 10 minutes max (5s intervals)
+    let attempts = 0;
+    
+    while (attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
+      
+      const { data, error } = await supabase.functions.invoke("generate-video", {
+        body: { predictionId }
+      });
+      
+      if (error) throw new Error(error.message);
+      
+      if (data.status === "succeeded" && data.videoUrl) {
+        return data.videoUrl;
+      } else if (data.status === "failed") {
+        throw new Error(data.error || "Video generation failed");
+      }
+      
+      attempts++;
+      console.log(`Polling attempt ${attempts}: status = ${data.status}`);
+    }
+    
+    throw new Error("Video generation timed out");
+  };
+
   const generateVideo = async () => {
     if (!generatedImage) {
       toast.error("Please generate an image first");
@@ -78,6 +104,7 @@ export function MoodImagePanel({ prompt, themes, onPromptChange }: MoodImagePane
 
     setIsGeneratingVideo(true);
     try {
+      // Start async generation
       const { data, error } = await supabase.functions.invoke("generate-video", {
         body: { 
           imageUrl: generatedImage,
@@ -89,7 +116,11 @@ export function MoodImagePanel({ prompt, themes, onPromptChange }: MoodImagePane
       if (error) throw new Error(error.message);
       if (data.error) throw new Error(data.error);
 
-      setGeneratedVideo(data.videoUrl);
+      toast.info("Video generation started, this may take a few minutes...");
+      
+      // Poll for completion
+      const videoUrl = await pollForVideoCompletion(data.predictionId);
+      setGeneratedVideo(videoUrl);
       toast.success("Video generated successfully!");
     } catch (err) {
       console.error("Video generation error:", err);
