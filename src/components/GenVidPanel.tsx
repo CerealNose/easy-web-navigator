@@ -235,17 +235,16 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
     return "Scene";
   };
 
-  // Calculate scenes from uploaded schedule OR sections + timestamps
+  // Calculate scenes from sections - one video per section with proper timing
   const calculateScenes = (): GeneratedScene[] => {
     const stylePrefix = getStylePrefix();
     
-    // Priority 1: Use uploaded schedule
+    // Priority 1: Use uploaded schedule (already grouped by scene)
     if (uploadedSchedule.length > 0) {
       return uploadedSchedule.map((item, index) => {
         const duration = (item.end - item.start) * videoDurationMultiplier[0];
         const sectionName = matchSectionToText(item.text);
         
-        // Use prompt from schedule if available, otherwise build from text
         const prompt = item.prompt 
           ? `${stylePrefix}, ${item.prompt}` 
           : `${stylePrefix}, ${sectionName.toLowerCase()}: ${item.text.slice(0, 100)}`;
@@ -261,33 +260,85 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
       });
     }
     
-    // Priority 2: Use sections + timestamps  
+    // Priority 2: Use sections + timestamps - group by section name for proper video switching
+    // Each unique section (Intro, Pre-Chorus, Chorus, etc.) gets ONE video
+    // Timestamps determine when that section starts/ends
+    if (sections.length > 0 && timestamps.length > 0) {
+      // First, assign each timestamp to a section based on text matching
+      const timestampsWithSections = timestamps.map(ts => {
+        const section = ts.section || matchSectionToText(ts.text);
+        return { ...ts, assignedSection: section };
+      });
+      
+      // Group consecutive timestamps by section to find section boundaries
+      // This handles repeated sections like [Chorus] appearing multiple times
+      const sectionGroups: { name: string; startTime: number; endTime: number; timestamps: typeof timestampsWithSections }[] = [];
+      
+      let currentGroup: typeof sectionGroups[0] | null = null;
+      
+      for (const ts of timestampsWithSections) {
+        // Find if this timestamp belongs to a known section
+        const matchedSection = sections.find(s => {
+          const sectionWords = s.text.toLowerCase().split(/\s+/);
+          const tsWords = ts.text.toLowerCase().split(/\s+/);
+          return sectionWords.some(sw => sw.length > 3 && tsWords.some(tw => tw.includes(sw) || sw.includes(tw)));
+        });
+        
+        const sectionName = matchedSection?.name || ts.assignedSection;
+        
+        // If we're in the same section, extend the group
+        if (currentGroup && currentGroup.name === sectionName) {
+          currentGroup.endTime = ts.end;
+          currentGroup.timestamps.push(ts);
+        } else {
+          // Start a new section group
+          if (currentGroup) {
+            sectionGroups.push(currentGroup);
+          }
+          currentGroup = {
+            name: sectionName,
+            startTime: ts.start,
+            endTime: ts.end,
+            timestamps: [ts]
+          };
+        }
+      }
+      
+      // Push the last group
+      if (currentGroup) {
+        sectionGroups.push(currentGroup);
+      }
+      
+      // Create scenes from section groups
+      return sectionGroups.map((group, index) => {
+        const duration = (group.endTime - group.startTime) * videoDurationMultiplier[0];
+        const sectionContent = sections.find(s => s.name === group.name)?.text || 
+                               group.timestamps.map(t => t.text).join(' ');
+        
+        const prompt = `${stylePrefix}, ${group.name.toLowerCase()}: ${sectionContent.slice(0, 100)}`;
+        
+        return {
+          section: group.name,
+          prompt,
+          duration: Math.max(3, duration),
+          start: group.startTime,
+          end: group.endTime,
+          status: 'pending' as const,
+        };
+      });
+    }
+    
+    // Fallback: Just use sections without timestamps
     if (sections.length > 0) {
       return sections.map((section, index) => {
-        // Find timestamps that belong to this section
-        const sectionTimestamps = timestamps.filter(ts => {
-          const words = ts.text.toLowerCase().split(/\s+/);
-          const sectionWords = section.text.toLowerCase();
-          return words.some(word => word.length > 3 && sectionWords.includes(word));
-        });
-
-        // Calculate duration from timestamps
-        let start = index * 10; // default staggered
-        let end = start + 5;
-        let duration = 5;
-        
-        if (sectionTimestamps.length > 0) {
-          start = Math.min(...sectionTimestamps.map(ts => ts.start));
-          end = Math.max(...sectionTimestamps.map(ts => ts.end));
-          duration = Math.max(3, (end - start) * videoDurationMultiplier[0]);
-        }
-
+        const start = index * 10;
+        const end = start + 10;
         const prompt = `${stylePrefix}, ${section.name.toLowerCase()}: ${section.text.slice(0, 100)}`;
-
+        
         return {
           section: section.name,
           prompt,
-          duration,
+          duration: 10,
           start,
           end,
           status: 'pending' as const,
@@ -776,13 +827,22 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
           <div className="flex items-center gap-2">
             <Layers className="w-5 h-5 text-secondary" />
             <h3 className="font-semibold">
-              {uploadedSchedule.length > 0 ? `Imported Scenes (${uploadedSchedule.length})` : `Detected Sections (${sections.length})`}
+              {uploadedSchedule.length > 0 ? `Imported Scenes (${uploadedSchedule.length})` : `Section Videos (${previewScenes.length})`}
             </h3>
           </div>
           {hasSourceData && (
-            <div className="text-sm text-muted-foreground">
-              <Clock className="w-4 h-4 inline mr-1" />
-              Est. {Math.round(totalDuration)}s total
+            <div className="text-sm text-muted-foreground flex items-center gap-3">
+              <span>
+                <Images className="w-4 h-4 inline mr-1" />
+                {uploadedImages.length > 0 
+                  ? `${Math.min(uploadedImages.length, previewScenes.length)}/${previewScenes.length} images`
+                  : `${previewScenes.length} images needed`
+                }
+              </span>
+              <span>
+                <Clock className="w-4 h-4 inline mr-1" />
+                {Math.round(totalDuration)}s total
+              </span>
             </div>
           )}
         </div>
@@ -800,18 +860,22 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
                 key={index}
                 className="flex items-center gap-3 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
               >
-                <span className="text-xs font-mono text-secondary min-w-[60px]">
-                  {scene.start.toFixed(1)}s
+                <span className="text-xs font-mono text-muted-foreground min-w-[90px]">
+                  {scene.start.toFixed(1)}s → {scene.end.toFixed(1)}s
                 </span>
-                <span className="text-xs font-mono text-primary bg-primary/10 px-2 py-1 rounded">
+                <span className="text-xs font-mono text-primary bg-primary/10 px-2 py-1 rounded min-w-[80px] text-center">
                   {scene.section}
                 </span>
-                <span className="text-xs text-muted-foreground">
+                <span className="text-xs text-secondary font-medium min-w-[50px]">
                   {scene.duration.toFixed(1)}s
                 </span>
-                <span className="text-sm text-foreground/80 flex-1 truncate">
-                  {scene.prompt.slice(0, 60)}...
-                </span>
+                {uploadedImages[index] ? (
+                  <span className="text-xs text-green-500 flex items-center gap-1">
+                    <ImageIcon className="w-3 h-3" /> Image #{index + 1}
+                  </span>
+                ) : (
+                  <span className="text-xs text-muted-foreground/60">AI generated</span>
+                )}
               </div>
             ))}
           </div>
