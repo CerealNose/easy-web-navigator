@@ -697,6 +697,75 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
     }
   };
 
+  // Check all processing scenes at once
+  const [isCheckingAll, setIsCheckingAll] = useState(false);
+  
+  const checkAllProcessingScenes = async () => {
+    const processingScenes = scenes
+      .map((s, i) => ({ scene: s, index: i }))
+      .filter(({ scene }) => scene.status === 'processing' && scene.predictionId);
+    
+    if (processingScenes.length === 0) {
+      toast.info("No scenes currently processing");
+      return;
+    }
+
+    setIsCheckingAll(true);
+    toast.info(`Checking ${processingScenes.length} processing scenes...`);
+    
+    let retrieved = 0;
+    let stillProcessing = 0;
+    let failed = 0;
+    
+    for (const { scene, index } of processingScenes) {
+      try {
+        const res = await supabase.functions.invoke("generate-video", {
+          body: { predictionId: scene.predictionId }
+        });
+        
+        if (res.error) {
+          console.error(`Scene ${index + 1} check error:`, res.error);
+          continue;
+        }
+        
+        const status = res.data?.status;
+        
+        if (status === "succeeded" && res.data?.videoUrl) {
+          setScenes(prev => prev.map((s, idx) => 
+            idx === index ? { ...s, videoUrl: res.data.videoUrl, status: 'complete' } : s
+          ));
+          retrieved++;
+        } else if (status === "failed") {
+          setScenes(prev => prev.map((s, idx) => 
+            idx === index ? { ...s, status: 'error' } : s
+          ));
+          failed++;
+        } else {
+          stillProcessing++;
+        }
+        
+        // Small delay between checks to avoid rate limits
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } catch (error) {
+        console.error(`Error checking scene ${index + 1}:`, error);
+      }
+    }
+    
+    setIsCheckingAll(false);
+    
+    if (retrieved > 0) {
+      toast.success(`Retrieved ${retrieved} video(s)!`);
+    }
+    if (stillProcessing > 0) {
+      toast.info(`${stillProcessing} scene(s) still processing`);
+    }
+    if (failed > 0) {
+      toast.error(`${failed} scene(s) failed`);
+    }
+  };
+
+  const processingCount = scenes.filter(s => s.status === 'processing').length;
+
   const downloadAllVideos = () => {
     const videos = scenes.filter(s => s.videoUrl);
     if (videos.length === 0) {
@@ -1292,6 +1361,22 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
             </>
           )}
         </Button>
+
+        {processingCount > 0 && (
+          <Button 
+            variant="outline" 
+            size="lg" 
+            onClick={checkAllProcessingScenes}
+            disabled={isCheckingAll}
+          >
+            {isCheckingAll ? (
+              <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+            ) : (
+              <RefreshCw className="w-5 h-5 mr-2" />
+            )}
+            Check All ({processingCount})
+          </Button>
+        )}
 
         {scenes.some(s => s.videoUrl) && (
           <Button variant="outline" size="lg" onClick={downloadAllVideos}>
