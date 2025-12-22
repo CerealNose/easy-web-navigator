@@ -34,9 +34,19 @@ Deno.serve(async (req) => {
 
     console.log("Processing audio file:", audioFile.name, "Size:", audioFile.size);
 
-    // Convert file to base64 data URL
+    // Convert file to base64 data URL in chunks to avoid stack overflow
     const arrayBuffer = await audioFile.arrayBuffer();
-    const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+    const bytes = new Uint8Array(arrayBuffer);
+    
+    // Process in 32KB chunks to avoid call stack limits
+    let binary = '';
+    const chunkSize = 32768;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const chunk = bytes.subarray(i, i + chunkSize);
+      binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
+    }
+    const base64 = btoa(binary);
+    
     const mimeType = audioFile.type || "audio/mpeg";
     const dataUrl = `data:${mimeType};base64,${base64}`;
 
