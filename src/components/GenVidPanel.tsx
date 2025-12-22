@@ -575,13 +575,15 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
             throw videoRes.error;
           }
           
-          // Poll for video completion with longer intervals
+          // Poll for video completion - videos can take 3-5 minutes
           const predictionId = videoRes.data.predictionId;
           let videoUrl: string | null = null;
           let attempts = 0;
-          const maxAttempts = 60; // 5 minutes max (5s intervals)
+          const maxAttempts = 90; // ~7.5 minutes max (5s intervals)
           
-          toast.info(`Scene ${i + 1}: Video generation started, polling...`);
+          toast.info(`Scene ${i + 1}: Video generating (ID: ${predictionId.slice(0, 8)}...)`, {
+            duration: 10000,
+          });
           
           while (attempts < maxAttempts && !videoUrl) {
             await new Promise(resolve => setTimeout(resolve, 5000));
@@ -591,28 +593,40 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
                 body: { predictionId }
               });
               
+              // Handle any error by just continuing to poll
               if (pollRes.error) {
-                // If worker limit during poll, just wait longer
-                if (pollRes.error.message?.includes('WORKER_LIMIT')) {
-                  console.log("Worker limit during poll, waiting 10s...");
-                  await new Promise(resolve => setTimeout(resolve, 10000));
-                  attempts++;
-                  continue;
-                }
+                console.log(`Poll attempt ${attempts + 1} error:`, pollRes.error.message);
+                // Don't increment attempts on error, just wait and retry
+                await new Promise(resolve => setTimeout(resolve, 5000));
+                continue;
               }
               
-              if (pollRes.data?.status === "succeeded" && pollRes.data?.videoUrl) {
+              const status = pollRes.data?.status;
+              console.log(`Scene ${i + 1} poll ${attempts + 1}: status=${status}`);
+              
+              if (status === "succeeded" && pollRes.data?.videoUrl) {
                 videoUrl = pollRes.data.videoUrl;
-              } else if (pollRes.data?.status === "failed") {
-                throw new Error(pollRes.data.error || "Video generation failed");
+                console.log(`Scene ${i + 1} video ready:`, videoUrl);
+              } else if (status === "failed") {
+                throw new Error(pollRes.data.error || "Video generation failed on Replicate");
               }
-            } catch (pollError) {
-              console.error("Poll error:", pollError);
+              // For "starting" or "processing", just continue polling
+            } catch (pollError: any) {
+              // Only throw if it's a definite failure from Replicate
+              if (pollError.message?.includes("failed on Replicate")) {
+                throw pollError;
+              }
+              console.error("Poll error (will retry):", pollError);
             }
             attempts++;
           }
           
-          if (!videoUrl) throw new Error("Video generation timed out");
+          if (!videoUrl) {
+            console.warn(`Scene ${i + 1} timed out after ${attempts} attempts. Prediction ID: ${predictionId}`);
+            toast.warning(`Scene ${i + 1} timed out. Video may still be processing on Replicate.`);
+            // Don't throw - just continue to next scene
+            continue;
+          }
 
           setScenes(prev => prev.map((s, idx) => 
             idx === i ? { ...s, videoUrl, status: 'complete' } : s
