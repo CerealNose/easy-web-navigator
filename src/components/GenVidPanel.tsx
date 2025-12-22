@@ -223,34 +223,107 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
     setUploadedImages([]);
   };
 
-  // Match section to timestamp text
-  const matchSectionToText = (text: string): string => {
-    const words = text.toLowerCase().split(/\s+/);
+  // Match a line of text to its parent section by checking if the section contains this text
+  const findSectionForText = (text: string): string => {
+    const cleanText = text.toLowerCase().trim();
+    
+    // Check each section to see if it contains this line
     for (const section of sections) {
-      const sectionWords = section.text.toLowerCase();
-      if (words.some(word => word.length > 3 && sectionWords.includes(word))) {
+      const sectionText = section.text.toLowerCase();
+      // Check if the section contains most of the words from this text
+      const words = cleanText.split(/\s+/).filter(w => w.length > 2);
+      const matchCount = words.filter(word => sectionText.includes(word)).length;
+      
+      // If more than 60% of words match, it belongs to this section
+      if (words.length > 0 && matchCount / words.length > 0.6) {
         return section.name;
       }
     }
     return "Scene";
   };
 
-  // Calculate scenes from sections - one video per section with proper timing
+  // Calculate scenes - group schedule items by their parent sections
   const calculateScenes = (): GeneratedScene[] => {
     const stylePrefix = getStylePrefix();
     
-    // Priority 1: Use uploaded schedule (already grouped by scene)
+    // When we have both schedule AND sections, group schedule items by section
+    if (uploadedSchedule.length > 0 && sections.length > 0) {
+      // Assign each schedule item to its section
+      const itemsWithSections = uploadedSchedule.map(item => ({
+        ...item,
+        section: findSectionForText(item.text)
+      }));
+      
+      // Group consecutive items by section (handles repeated sections like multiple Choruses)
+      const sectionGroups: { 
+        name: string; 
+        startTime: number; 
+        endTime: number; 
+        items: typeof itemsWithSections;
+      }[] = [];
+      
+      let currentGroup: typeof sectionGroups[0] | null = null;
+      
+      for (const item of itemsWithSections) {
+        if (currentGroup && currentGroup.name === item.section) {
+          // Extend current group
+          currentGroup.endTime = item.end;
+          currentGroup.items.push(item);
+        } else {
+          // Start new group
+          if (currentGroup) {
+            sectionGroups.push(currentGroup);
+          }
+          currentGroup = {
+            name: item.section,
+            startTime: item.start,
+            endTime: item.end,
+            items: [item]
+          };
+        }
+      }
+      
+      if (currentGroup) {
+        sectionGroups.push(currentGroup);
+      }
+      
+      console.log("Section groups created:", sectionGroups.map(g => ({
+        name: g.name,
+        start: g.startTime,
+        end: g.endTime,
+        itemCount: g.items.length
+      })));
+      
+      // Create one scene per section group
+      return sectionGroups.map((group) => {
+        const duration = (group.endTime - group.startTime) * videoDurationMultiplier[0];
+        const sectionContent = sections.find(s => s.name === group.name)?.text || 
+                               group.items.map(i => i.text).join(' ');
+        
+        const prompt = `${stylePrefix}, ${group.name.toLowerCase()}: ${sectionContent.slice(0, 100)}`;
+        
+        return {
+          section: group.name,
+          prompt,
+          duration: Math.max(3, duration),
+          start: group.startTime,
+          end: group.endTime,
+          status: 'pending' as const,
+        };
+      });
+    }
+    
+    // Use uploaded schedule only (no sections to group by)
     if (uploadedSchedule.length > 0) {
       return uploadedSchedule.map((item, index) => {
         const duration = (item.end - item.start) * videoDurationMultiplier[0];
-        const sectionName = matchSectionToText(item.text);
         
         const prompt = item.prompt 
           ? `${stylePrefix}, ${item.prompt}` 
-          : `${stylePrefix}, ${sectionName.toLowerCase()}: ${item.text.slice(0, 100)}`;
+          : `${stylePrefix}, scene: ${item.text.slice(0, 100)}`;
         
         return {
-          section: sectionName || `Scene ${index + 1}`,
+          section: `Scene ${index + 1}`,
           prompt,
           duration: Math.max(3, duration),
           start: item.start,
@@ -260,57 +333,33 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
       });
     }
     
-    // Priority 2: Use sections + timestamps - group by section name for proper video switching
-    // Each unique section (Intro, Pre-Chorus, Chorus, etc.) gets ONE video
-    // Timestamps determine when that section starts/ends
+    // Use sections + timestamps
     if (sections.length > 0 && timestamps.length > 0) {
-      // First, assign each timestamp to a section based on text matching
-      const timestampsWithSections = timestamps.map(ts => {
-        const section = ts.section || matchSectionToText(ts.text);
-        return { ...ts, assignedSection: section };
-      });
+      const timestampsWithSections = timestamps.map(ts => ({
+        ...ts,
+        assignedSection: ts.section || findSectionForText(ts.text)
+      }));
       
-      // Group consecutive timestamps by section to find section boundaries
-      // This handles repeated sections like [Chorus] appearing multiple times
       const sectionGroups: { name: string; startTime: number; endTime: number; timestamps: typeof timestampsWithSections }[] = [];
-      
       let currentGroup: typeof sectionGroups[0] | null = null;
       
       for (const ts of timestampsWithSections) {
-        // Find if this timestamp belongs to a known section
-        const matchedSection = sections.find(s => {
-          const sectionWords = s.text.toLowerCase().split(/\s+/);
-          const tsWords = ts.text.toLowerCase().split(/\s+/);
-          return sectionWords.some(sw => sw.length > 3 && tsWords.some(tw => tw.includes(sw) || sw.includes(tw)));
-        });
-        
-        const sectionName = matchedSection?.name || ts.assignedSection;
-        
-        // If we're in the same section, extend the group
-        if (currentGroup && currentGroup.name === sectionName) {
+        if (currentGroup && currentGroup.name === ts.assignedSection) {
           currentGroup.endTime = ts.end;
           currentGroup.timestamps.push(ts);
         } else {
-          // Start a new section group
-          if (currentGroup) {
-            sectionGroups.push(currentGroup);
-          }
+          if (currentGroup) sectionGroups.push(currentGroup);
           currentGroup = {
-            name: sectionName,
+            name: ts.assignedSection,
             startTime: ts.start,
             endTime: ts.end,
             timestamps: [ts]
           };
         }
       }
+      if (currentGroup) sectionGroups.push(currentGroup);
       
-      // Push the last group
-      if (currentGroup) {
-        sectionGroups.push(currentGroup);
-      }
-      
-      // Create scenes from section groups
-      return sectionGroups.map((group, index) => {
+      return sectionGroups.map((group) => {
         const duration = (group.endTime - group.startTime) * videoDurationMultiplier[0];
         const sectionContent = sections.find(s => s.name === group.name)?.text || 
                                group.timestamps.map(t => t.text).join(' ');
