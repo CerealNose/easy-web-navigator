@@ -561,8 +561,12 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
           </div>
           
           {uploadedSchedule.length > 0 && (
-            <div className="text-sm text-muted-foreground">
-              ✓ {uploadedSchedule.length} scenes loaded • Total: {Math.round(uploadedSchedule.reduce((a, s) => a + (s.end - s.start), 0))}s
+            <div className="text-sm text-muted-foreground space-y-1">
+              <div>✓ {uploadedSchedule.length} lines imported from {uploadedFileName}</div>
+              <div className="text-xs">
+                → Will generate <strong className="text-foreground">{previewScenes.length} section videos</strong> • 
+                Total duration: {Math.round(uploadedSchedule.reduce((a, s) => a + (s.end - s.start), 0))}s
+              </div>
             </div>
           )}
         </div>
