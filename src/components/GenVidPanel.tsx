@@ -565,25 +565,49 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
             },
           });
 
-          if (videoRes.error) throw videoRes.error;
+          if (videoRes.error) {
+            // Handle WORKER_LIMIT by waiting and retrying
+            if (videoRes.error.message?.includes('WORKER_LIMIT')) {
+              console.log("Worker limit hit, waiting 30s before retry...");
+              await new Promise(resolve => setTimeout(resolve, 30000));
+              continue;
+            }
+            throw videoRes.error;
+          }
           
-          // Poll for video completion
+          // Poll for video completion with longer intervals
           const predictionId = videoRes.data.predictionId;
           let videoUrl: string | null = null;
           let attempts = 0;
-          const maxAttempts = 120; // 10 minutes max
+          const maxAttempts = 60; // 5 minutes max (5s intervals)
+          
+          toast.info(`Scene ${i + 1}: Video generation started, polling...`);
           
           while (attempts < maxAttempts && !videoUrl) {
             await new Promise(resolve => setTimeout(resolve, 5000));
             
-            const pollRes = await supabase.functions.invoke("generate-video", {
-              body: { predictionId }
-            });
-            
-            if (pollRes.data?.status === "succeeded" && pollRes.data?.videoUrl) {
-              videoUrl = pollRes.data.videoUrl;
-            } else if (pollRes.data?.status === "failed") {
-              throw new Error(pollRes.data.error || "Video generation failed");
+            try {
+              const pollRes = await supabase.functions.invoke("generate-video", {
+                body: { predictionId }
+              });
+              
+              if (pollRes.error) {
+                // If worker limit during poll, just wait longer
+                if (pollRes.error.message?.includes('WORKER_LIMIT')) {
+                  console.log("Worker limit during poll, waiting 10s...");
+                  await new Promise(resolve => setTimeout(resolve, 10000));
+                  attempts++;
+                  continue;
+                }
+              }
+              
+              if (pollRes.data?.status === "succeeded" && pollRes.data?.videoUrl) {
+                videoUrl = pollRes.data.videoUrl;
+              } else if (pollRes.data?.status === "failed") {
+                throw new Error(pollRes.data.error || "Video generation failed");
+              }
+            } catch (pollError) {
+              console.error("Poll error:", pollError);
             }
             attempts++;
           }
@@ -593,6 +617,9 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
           setScenes(prev => prev.map((s, idx) => 
             idx === i ? { ...s, videoUrl, status: 'complete' } : s
           ));
+          
+          // Add delay between scene video generations to avoid rate limits
+          await new Promise(resolve => setTimeout(resolve, 2000));
         }
 
         toast.success(`Scene ${i + 1}/${sceneList.length} complete`);
