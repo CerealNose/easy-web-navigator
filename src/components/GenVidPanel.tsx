@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -118,20 +118,24 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
   const [motionPreset, setMotionPreset] = useState<keyof typeof MOTION_PRESETS>("slow");
   const [videoSize, setVideoSize] = useState<keyof typeof VIDEO_SIZES>("720p");
   const [videoFps, setVideoFps] = useState<keyof typeof FPS_OPTIONS>("24");
-  const [customStylePrefix, setCustomStylePrefix] = useState("");
-  const [useCustomStyle, setUseCustomStyle] = useState(false);
-  const [useMoodPrompt, setUseMoodPrompt] = useState(true);
+  const [styleSource, setStyleSource] = useState<"preset" | "mood" | "manual">(moodPrompt ? "mood" : "preset");
+  const [manualStylePrefix, setManualStylePrefix] = useState("");
   const [imageQuality, setImageQuality] = useState([80]);
   const [videoDurationMultiplier, setVideoDurationMultiplier] = useState([1]);
   const [autoGenerateVideo, setAutoGenerateVideo] = useState(true);
 
-  // Use mood prompt as custom style when enabled
-  useEffect(() => {
-    if (moodPrompt && useMoodPrompt) {
-      setCustomStylePrefix(moodPrompt);
-      setUseCustomStyle(true);
+  // Get the active style prefix based on source selection
+  const getStylePrefix = (): string => {
+    switch (styleSource) {
+      case "mood":
+        return moodPrompt || STYLE_PRESETS[stylePreset].prefix;
+      case "manual":
+        return manualStylePrefix || STYLE_PRESETS[stylePreset].prefix;
+      case "preset":
+      default:
+        return STYLE_PRESETS[stylePreset].prefix;
     }
-  }, [moodPrompt, useMoodPrompt]);
+  };
 
   // Handle file upload (JSON or SRT)
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -175,7 +179,7 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
 
   // Calculate scenes from uploaded schedule OR sections + timestamps
   const calculateScenes = (): GeneratedScene[] => {
-    const stylePrefix = useCustomStyle ? customStylePrefix : STYLE_PRESETS[stylePreset].prefix;
+    const stylePrefix = getStylePrefix();
     
     // Priority 1: Use uploaded schedule
     if (uploadedSchedule.length > 0) {
@@ -412,24 +416,65 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
             </Select>
           </div>
 
-          {/* Style Preset */}
-          <div className="space-y-2">
-            <Label className="text-sm text-muted-foreground">Visual Style</Label>
-            <Select 
-              value={stylePreset} 
-              onValueChange={(v) => setStylePreset(v as keyof typeof STYLE_PRESETS)}
-              disabled={useCustomStyle}
-            >
+          {/* Style Source */}
+          <div className="space-y-2 md:col-span-2">
+            <Label className="text-sm text-muted-foreground">Style Source</Label>
+            <Select value={styleSource} onValueChange={(v) => setStyleSource(v as "preset" | "mood" | "manual")}>
               <SelectTrigger className="bg-background">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="bg-background border-border">
-                {Object.entries(STYLE_PRESETS).map(([key, value]) => (
-                  <SelectItem key={key} value={key}>{value.label}</SelectItem>
-                ))}
+                <SelectItem value="preset">Use Preset Style</SelectItem>
+                <SelectItem value="mood" disabled={!moodPrompt}>
+                  Use Mood Image Prompt {!moodPrompt && "(analyze lyrics first)"}
+                </SelectItem>
+                <SelectItem value="manual">Manual Custom Style</SelectItem>
               </SelectContent>
             </Select>
           </div>
+
+          {/* Visual Style Preset - only show when preset is selected */}
+          {styleSource === "preset" && (
+            <div className="space-y-2">
+              <Label className="text-sm text-muted-foreground">Visual Style</Label>
+              <Select 
+                value={stylePreset} 
+                onValueChange={(v) => setStylePreset(v as keyof typeof STYLE_PRESETS)}
+              >
+                <SelectTrigger className="bg-background">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-background border-border">
+                  {Object.entries(STYLE_PRESETS).map(([key, value]) => (
+                    <SelectItem key={key} value={key}>{value.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {/* Show mood prompt preview when mood is selected */}
+          {styleSource === "mood" && moodPrompt && (
+            <div className="space-y-2 md:col-span-2">
+              <Label className="text-sm text-muted-foreground">Mood Prompt (from Mood Image tab)</Label>
+              <div className="p-3 rounded-lg bg-muted/30 text-sm text-foreground/80 max-h-20 overflow-y-auto">
+                {moodPrompt}
+              </div>
+            </div>
+          )}
+
+          {/* Manual style input when manual is selected */}
+          {styleSource === "manual" && (
+            <div className="space-y-2 md:col-span-2">
+              <Label className="text-sm text-muted-foreground">Custom Style Prefix</Label>
+              <Input
+                value={manualStylePrefix}
+                onChange={(e) => setManualStylePrefix(e.target.value)}
+                placeholder="e.g., watercolor painting, soft brushstrokes, artistic"
+                className="bg-background"
+              />
+            </div>
+          )}
 
           {/* Motion Preset */}
           <div className="space-y-2">
@@ -459,33 +504,6 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
               step={0.1}
               className="w-full"
             />
-          </div>
-
-          {/* Use Mood Prompt Toggle */}
-          {moodPrompt && (
-            <div className="flex items-center justify-between md:col-span-2">
-              <div>
-                <Label className="text-sm">Use Mood Image Prompt</Label>
-                <p className="text-xs text-muted-foreground">Apply the AI mood prompt from Mood Image tab</p>
-              </div>
-              <Switch checked={useMoodPrompt} onCheckedChange={setUseMoodPrompt} />
-            </div>
-          )}
-
-          {/* Custom Style Toggle */}
-          <div className="space-y-2 md:col-span-2">
-            <div className="flex items-center justify-between">
-              <Label className="text-sm text-muted-foreground">Custom Style Prefix</Label>
-              <Switch checked={useCustomStyle} onCheckedChange={setUseCustomStyle} />
-            </div>
-            {useCustomStyle && (
-              <Input
-                value={customStylePrefix}
-                onChange={(e) => setCustomStylePrefix(e.target.value)}
-                placeholder="e.g., watercolor painting, soft brushstrokes, artistic"
-                className="bg-background"
-              />
-            )}
           </div>
 
           {/* Image Quality */}
