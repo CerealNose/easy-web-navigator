@@ -18,12 +18,12 @@ interface WordTimestamp {
   end: number;
 }
 
+const FPS = 24;
+
 function formatTime(seconds: number): string {
-  const hrs = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  const secs = Math.floor(seconds % 60);
-  const frames = Math.floor((seconds % 1) * 25); // 25 FPS
-  return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}:${frames.toString().padStart(2, '0')}`;
+  // Convert seconds to frame number at 24 FPS
+  const frame = Math.round(seconds * FPS);
+  return `@${frame}`;
 }
 
 export function TimestampPanel() {
@@ -109,7 +109,9 @@ export function TimestampPanel() {
   };
 
   const copyTimestamps = () => {
-    const text = timestamps.map(ts => `${ts.time} - ${ts.text}`).join("\n");
+    const header = `FPS = ${FPS}:`;
+    const lines = timestamps.map(ts => `${ts.time}: ${ts.text}`);
+    const text = [header, ...lines].join("\n");
     navigator.clipboard.writeText(text);
     toast.success("Timestamps copied to clipboard");
   };
@@ -242,7 +244,7 @@ export function TimestampPanel() {
         <ul className="text-sm text-muted-foreground/80 space-y-1">
           <li>• Powered by OpenAI Whisper large-v3 via Replicate</li>
           <li>• Word-level timestamp accuracy</li>
-          <li>• Frame-accurate output at 25 FPS</li>
+          <li>• Frame-accurate output at {FPS} FPS</li>
           <li>• Export to SRT for video editing</li>
         </ul>
       </Card>
