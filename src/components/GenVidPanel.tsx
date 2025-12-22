@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Video, Play, Download, Settings, Loader2, ImageIcon, Film, Clock, Layers, Upload, FileJson, FileText } from "lucide-react";
+import { Video, Play, Download, Settings, Loader2, ImageIcon, Film, Clock, Layers, Upload, FileJson, FileText, Images, X, AlertCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -38,7 +38,14 @@ interface GeneratedScene {
   end: number;
   imageUrl?: string;
   videoUrl?: string;
+  uploadedImage?: string; // Base64 or object URL for uploaded images
   status: 'pending' | 'generating-image' | 'generating-video' | 'complete' | 'error';
+}
+
+interface UploadedImage {
+  file: File;
+  preview: string;
+  name: string;
 }
 
 interface GenVidPanelProps {
@@ -112,6 +119,7 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
   const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
   const [uploadedSchedule, setUploadedSchedule] = useState<ScheduleItem[]>([]);
   const [uploadedFileName, setUploadedFileName] = useState<string>("");
+  const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([]);
   
   // Settings
   const [stylePreset, setStylePreset] = useState<keyof typeof STYLE_PRESETS>("cinematic");
@@ -135,6 +143,16 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
       default:
         return STYLE_PRESETS[stylePreset].prefix;
     }
+  };
+
+  // Convert file to base64
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = error => reject(error);
+    });
   };
 
   // Handle file upload (JSON or SRT)
@@ -163,6 +181,44 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
       console.error("File parse error:", err);
       toast.error("Failed to parse file");
     }
+  };
+
+  // Handle batch image upload
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    
+    const newImages: UploadedImage[] = [];
+    
+    Array.from(files).forEach(file => {
+      if (file.type.startsWith('image/')) {
+        const preview = URL.createObjectURL(file);
+        newImages.push({
+          file,
+          preview,
+          name: file.name
+        });
+      }
+    });
+    
+    setUploadedImages(prev => [...prev, ...newImages]);
+    toast.success(`Added ${newImages.length} images`);
+  };
+
+  // Remove uploaded image
+  const removeUploadedImage = (index: number) => {
+    setUploadedImages(prev => {
+      const newImages = [...prev];
+      URL.revokeObjectURL(newImages[index].preview);
+      newImages.splice(index, 1);
+      return newImages;
+    });
+  };
+
+  // Clear all uploaded images
+  const clearAllImages = () => {
+    uploadedImages.forEach(img => URL.revokeObjectURL(img.preview));
+    setUploadedImages([]);
   };
 
   // Match section to timestamp text
@@ -245,6 +301,11 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
     const sceneList = calculateScenes();
     if (sceneList.length === 0) return;
 
+    // Check if we have enough images when using uploaded images
+    if (uploadedImages.length > 0 && uploadedImages.length < sceneList.length) {
+      toast.error(`Need ${sceneList.length} images, but only ${uploadedImages.length} uploaded. Upload more or generate remaining.`);
+    }
+
     setScenes(sceneList);
     setIsGenerating(true);
     setCurrentSceneIndex(0);
@@ -256,26 +317,39 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
       setCurrentSceneIndex(i);
       
       try {
-        // Update status to generating image
-        setScenes(prev => prev.map((s, idx) => 
-          idx === i ? { ...s, status: 'generating-image' } : s
-        ));
+        let imageUrl: string;
+        
+        // Check if we have an uploaded image for this scene
+        if (uploadedImages[i]) {
+          // Convert uploaded image to base64 for the video generation API
+          const file = uploadedImages[i].file;
+          const base64 = await fileToBase64(file);
+          imageUrl = base64;
+          
+          setScenes(prev => prev.map((s, idx) => 
+            idx === i ? { ...s, imageUrl: uploadedImages[i].preview, uploadedImage: base64, status: autoGenerateVideo ? 'generating-video' : 'complete' } : s
+          ));
+        } else {
+          // Generate image using AI
+          setScenes(prev => prev.map((s, idx) => 
+            idx === i ? { ...s, status: 'generating-image' } : s
+          ));
 
-        // Generate image
-        const imageRes = await supabase.functions.invoke("generate-image", {
-          body: { 
-            prompt: sceneList[i].prompt,
-            width: sizeConfig.width,
-            height: sizeConfig.height
-          },
-        });
+          const imageRes = await supabase.functions.invoke("generate-image", {
+            body: { 
+              prompt: sceneList[i].prompt,
+              width: sizeConfig.width,
+              height: sizeConfig.height
+            },
+          });
 
-        if (imageRes.error) throw imageRes.error;
-        const imageUrl = imageRes.data.imageUrl;
+          if (imageRes.error) throw imageRes.error;
+          imageUrl = imageRes.data.imageUrl;
 
-        setScenes(prev => prev.map((s, idx) => 
-          idx === i ? { ...s, imageUrl, status: autoGenerateVideo ? 'generating-video' : 'complete' } : s
-        ));
+          setScenes(prev => prev.map((s, idx) => 
+            idx === i ? { ...s, imageUrl, status: autoGenerateVideo ? 'generating-video' : 'complete' } : s
+          ));
+        }
 
         // Generate video if enabled
         if (autoGenerateVideo) {
@@ -373,6 +447,117 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
           {uploadedSchedule.length > 0 && (
             <div className="text-sm text-muted-foreground">
               ✓ {uploadedSchedule.length} scenes loaded • Total: {Math.round(uploadedSchedule.reduce((a, s) => a + (s.end - s.start), 0))}s
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {/* Batch Image Upload Card */}
+      <Card className="p-6 glass-card border-border/50">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Images className="w-5 h-5 text-secondary" />
+            <h3 className="font-semibold">Scene Images</h3>
+          </div>
+          {uploadedImages.length > 0 && (
+            <Button variant="ghost" size="sm" onClick={clearAllImages}>
+              <X className="w-4 h-4 mr-1" />
+              Clear All
+            </Button>
+          )}
+        </div>
+        
+        {/* Image requirement indicator */}
+        {hasSourceData && (
+          <div className={`flex items-center gap-2 mb-4 p-3 rounded-lg ${
+            uploadedImages.length === 0 
+              ? 'bg-muted/30' 
+              : uploadedImages.length >= previewScenes.length 
+                ? 'bg-green-500/10 border border-green-500/30' 
+                : 'bg-yellow-500/10 border border-yellow-500/30'
+          }`}>
+            {uploadedImages.length === 0 ? (
+              <>
+                <ImageIcon className="w-4 h-4 text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">
+                  Upload <strong>{previewScenes.length} images</strong> for your scenes, or let AI generate them
+                </span>
+              </>
+            ) : uploadedImages.length >= previewScenes.length ? (
+              <>
+                <ImageIcon className="w-4 h-4 text-green-500" />
+                <span className="text-sm text-green-600">
+                  ✓ {uploadedImages.length}/{previewScenes.length} images ready
+                </span>
+              </>
+            ) : (
+              <>
+                <AlertCircle className="w-4 h-4 text-yellow-500" />
+                <span className="text-sm text-yellow-600">
+                  {uploadedImages.length}/{previewScenes.length} images uploaded • {previewScenes.length - uploadedImages.length} will be AI-generated
+                </span>
+              </>
+            )}
+          </div>
+        )}
+
+        <div className="space-y-4">
+          <div className="relative">
+            <Input
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handleImageUpload}
+              className="hidden"
+              id="image-upload"
+            />
+            <label
+              htmlFor="image-upload"
+              className="flex items-center justify-center gap-3 h-24 border-2 border-dashed border-border rounded-xl cursor-pointer hover:border-secondary/50 hover:bg-muted/20 transition-all group"
+            >
+              <div className="flex flex-col items-center gap-2 text-muted-foreground group-hover:text-foreground transition-colors">
+                <Images className="w-8 h-8" />
+                <span className="text-sm font-medium">
+                  Drop images or click to upload
+                </span>
+                <span className="text-xs text-muted-foreground/60">
+                  Images will be matched to scenes in order
+                </span>
+              </div>
+            </label>
+          </div>
+
+          {/* Uploaded images preview */}
+          {uploadedImages.length > 0 && (
+            <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
+              {uploadedImages.map((img, index) => (
+                <div key={index} className="relative group aspect-square">
+                  <img 
+                    src={img.preview} 
+                    alt={img.name}
+                    className="w-full h-full object-cover rounded-lg"
+                  />
+                  <div className="absolute inset-0 bg-background/60 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="w-6 h-6"
+                      onClick={() => removeUploadedImage(index)}
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  <span className="absolute bottom-1 left-1 text-[10px] bg-background/80 px-1 rounded">
+                    {index + 1}
+                  </span>
+                  {/* Show which scene this maps to */}
+                  {previewScenes[index] && (
+                    <span className="absolute top-1 left-1 text-[9px] bg-primary/80 text-primary-foreground px-1 rounded truncate max-w-[90%]">
+                      {previewScenes[index].section}
+                    </span>
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </div>
