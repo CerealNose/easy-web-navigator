@@ -36,11 +36,19 @@ Deno.serve(async (req) => {
         messages: [
           {
             role: "system",
-            content: `You are a lyrical analysis AI. Analyze the lyrics to detect emotions, moods, and visual themes. Generate a cinematic image prompt that captures the emotional essence.`
+            content: `You are a lyrical analysis AI specializing in music video visualization. Analyze the lyrics to detect emotions, moods, and visual themes. 
+
+For EACH SECTION of the song (marked with [Section Name]), generate a UNIQUE and DISTINCT cinematic image prompt that:
+1. Captures the specific emotion and narrative of THAT section
+2. Progresses visually through the song's story arc
+3. Uses different settings, lighting, and compositions for variety
+4. Maintains visual coherence while showing emotional evolution
+
+The sections should feel like a cohesive music video with visual variety, not the same scene repeated.`
           },
           {
             role: "user",
-            content: `Analyze these lyrics:\n\n${lyrics}`
+            content: `Analyze these lyrics and create unique visual prompts for each section:\n\n${lyrics}`
           }
         ],
         tools: [
@@ -48,7 +56,7 @@ Deno.serve(async (req) => {
             type: "function",
             function: {
               name: "analyze_lyrics_result",
-              description: "Return the analysis of the lyrics",
+              description: "Return the analysis of the lyrics with per-section visual prompts",
               parameters: {
                 type: "object",
                 properties: {
@@ -72,10 +80,28 @@ Deno.serve(async (req) => {
                   },
                   moodPrompt: {
                     type: "string",
-                    description: "Detailed cinematic image prompt with visual setting, lighting, mood, symbolic elements"
+                    description: "Overall cinematic style and mood that ties all scenes together"
+                  },
+                  sectionPrompts: {
+                    type: "array",
+                    description: "Unique visual prompts for each section of the song",
+                    items: {
+                      type: "object",
+                      properties: {
+                        section: { 
+                          type: "string", 
+                          description: "Section name exactly as it appears in lyrics (e.g., 'Intro', 'Verse 1', 'Chorus')" 
+                        },
+                        prompt: { 
+                          type: "string", 
+                          description: "Detailed cinematic image prompt unique to this section - include setting, lighting, mood, camera angle, symbolic elements. Should be different from other sections." 
+                        }
+                      },
+                      required: ["section", "prompt"]
+                    }
                   }
                 },
-                required: ["themes", "emotions", "moodPrompt"]
+                required: ["themes", "emotions", "moodPrompt", "sectionPrompts"]
               }
             }
           }

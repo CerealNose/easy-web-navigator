@@ -51,10 +51,16 @@ interface UploadedImage {
   name: string;
 }
 
+interface SectionPrompt {
+  section: string;
+  prompt: string;
+}
+
 interface GenVidPanelProps {
   sections: Section[];
   timestamps: Timestamp[];
   moodPrompt?: string;
+  sectionPrompts?: SectionPrompt[];
 }
 
 const STYLE_PRESETS = {
@@ -116,7 +122,7 @@ function parseSRT(content: string): ScheduleItem[] {
   return items;
 }
 
-export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPanelProps) {
+export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionPrompts = [] }: GenVidPanelProps) {
   const [scenes, setScenes] = useState<GeneratedScene[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
@@ -325,6 +331,16 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
     return "Scene";
   };
 
+  // Get section-specific prompt if available, otherwise fall back to global style
+  const getSectionPrompt = (sectionName: string): string | null => {
+    // Normalize section name for comparison (case-insensitive)
+    const normalized = sectionName.toLowerCase().trim();
+    const match = sectionPrompts.find(sp => 
+      sp.section.toLowerCase().trim() === normalized
+    );
+    return match?.prompt || null;
+  };
+
   // Calculate scenes - group schedule items by their parent sections
   const calculateScenes = (): GeneratedScene[] => {
     const stylePrefix = getStylePrefix();
@@ -383,7 +399,11 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
         const sectionContent = sections.find(s => s.name === group.name)?.text || 
                                group.items.map(i => i.text).join(' ');
         
-        const prompt = `${stylePrefix}, ${group.name.toLowerCase()}: ${sectionContent.slice(0, 100)}`;
+        // Use section-specific prompt if available, otherwise fall back to global style
+        const sectionSpecificPrompt = getSectionPrompt(group.name);
+        const prompt = sectionSpecificPrompt 
+          ? sectionSpecificPrompt 
+          : `${stylePrefix}, ${group.name.toLowerCase()}: ${sectionContent.slice(0, 100)}`;
         
         return {
           section: group.name,
@@ -447,7 +467,11 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
         const sectionContent = sections.find(s => s.name === group.name)?.text || 
                                group.timestamps.map(t => t.text).join(' ');
         
-        const prompt = `${stylePrefix}, ${group.name.toLowerCase()}: ${sectionContent.slice(0, 100)}`;
+        // Use section-specific prompt if available, otherwise fall back to global style
+        const sectionSpecificPrompt = getSectionPrompt(group.name);
+        const prompt = sectionSpecificPrompt 
+          ? sectionSpecificPrompt 
+          : `${stylePrefix}, ${group.name.toLowerCase()}: ${sectionContent.slice(0, 100)}`;
         
         return {
           section: group.name,
@@ -465,7 +489,12 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "" }: GenVidPan
       return sections.map((section, index) => {
         const start = index * 10;
         const end = start + 10;
-        const prompt = `${stylePrefix}, ${section.name.toLowerCase()}: ${section.text.slice(0, 100)}`;
+        
+        // Use section-specific prompt if available, otherwise fall back to global style
+        const sectionSpecificPrompt = getSectionPrompt(section.name);
+        const prompt = sectionSpecificPrompt 
+          ? sectionSpecificPrompt 
+          : `${stylePrefix}, ${section.name.toLowerCase()}: ${section.text.slice(0, 100)}`;
         
         return {
           section: section.name,
