@@ -109,9 +109,14 @@ export function TimestampPanel() {
   };
 
   const copyTimestamps = () => {
-    const header = `FPS = ${FPS}:`;
-    const lines = timestamps.map(ts => `${ts.time}: ${ts.text}`);
-    const text = [header, ...lines].join("\n");
+    if (timestamps.length === 0) return;
+    
+    // First line: FPS = 24: @frame: text
+    // Subsequent lines: @frame: text
+    const firstLine = `FPS = ${FPS}: ${timestamps[0].time}: ${timestamps[0].text}`;
+    const remainingLines = timestamps.slice(1).map(ts => `${ts.time}: ${ts.text}`);
+    const text = [firstLine, ...remainingLines].join("\n");
+    
     navigator.clipboard.writeText(text);
     toast.success("Timestamps copied to clipboard");
   };
