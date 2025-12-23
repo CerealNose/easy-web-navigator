@@ -772,7 +772,15 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
                 videoUrl = pollRes.data.videoUrl;
                 console.log(`Scene ${i + 1} video ready:`, videoUrl);
               } else if (status === "failed") {
-                throw new Error(pollRes.data.error || "Video generation failed on Minimax");
+                // If Replicate internal error, mark scene as failed and move on
+                console.error(`Scene ${i + 1} failed:`, pollRes.data.error);
+                setScenes(prev => prev.map((s, idx) => 
+                  idx === i ? { ...s, status: 'error' } : s
+                ));
+                toast.error(`Scene ${i + 1} failed: ${pollRes.data.error || 'Video generation failed'}. Skipping to next scene.`);
+                // Clear the last frame so next scene generates fresh image
+                previousVideoLastFrame = null;
+                break; // Exit polling loop and continue to next scene
               }
               // For "preparing", "queueing", or "processing", just continue polling
             } catch (pollError: any) {
