@@ -55,6 +55,15 @@ interface UploadedImage {
 interface SectionPrompt {
   section: string;
   prompt: string;
+  narrativeBeat?: string;
+}
+
+interface Storyline {
+  summary: string;
+  protagonist: string;
+  setting: string;
+  emotionalArc: string;
+  visualMotifs: string[];
 }
 
 interface GenVidPanelProps {
@@ -62,6 +71,7 @@ interface GenVidPanelProps {
   timestamps: Timestamp[];
   moodPrompt?: string;
   sectionPrompts?: SectionPrompt[];
+  storyline?: Storyline;
 }
 
 const STYLE_PRESETS = {
@@ -128,7 +138,7 @@ function parseSRT(content: string): ScheduleItem[] {
   return items;
 }
 
-export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionPrompts = [] }: GenVidPanelProps) {
+export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionPrompts = [], storyline }: GenVidPanelProps) {
   const [scenes, setScenes] = useState<GeneratedScene[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
@@ -745,13 +755,20 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
         ));
         
         try {
+          // Find the narrative beat for this scene from sectionPrompts
+          const sectionName = sceneList[i].section;
+          const sectionPromptData = sectionPrompts.find(sp => sp.section === sectionName);
+          const narrativeBeat = sectionPromptData?.narrativeBeat;
+          
           const promptRes = await supabase.functions.invoke("generate-scene-prompt", {
             body: {
               lyricLine: lyricText,
               sceneIndex: i,
               totalScenes: sceneList.length,
               styleHint: moodPrompt || getStylePrefix(),
-              previousPrompt: previousScenePrompt
+              previousPrompt: previousScenePrompt,
+              storyline: storyline,
+              narrativeBeat: narrativeBeat
             }
           });
           
