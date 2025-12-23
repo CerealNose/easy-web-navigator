@@ -1087,10 +1087,11 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
     toast.success("Video generation complete!");
   };
 
-  // Stop the scene generation loop (doesn't cancel already-submitted video jobs)
-  const stopGenerating = () => {
+  // Stop the scene generation loop and cancel any already-submitted video jobs
+  const stopGenerating = async () => {
     cancelGenerationRef.current = true;
-    toast.info("Stopping generation after current scene...");
+    toast.info("Stopping generation and cancelling running jobs...");
+    await cancelAllJobs();
   };
 
   // Cancel all pending/processing video generation jobs (including orphaned ones)
