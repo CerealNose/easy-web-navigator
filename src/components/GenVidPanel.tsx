@@ -694,20 +694,35 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
           const sizeConfig = VIDEO_SIZES[videoSize];
           const fpsValue = FPS_OPTIONS[videoFps].value;
           
-          // Prepare video generation payload
+          // Prepare video generation payload with unique motion for each scene
+          // Add scene-specific motion variation to prevent static/identical videos
+          const motionVariations = [
+            "gentle forward camera push",
+            "slow pan left to right", 
+            "subtle zoom out revealing scene",
+            "smooth dolly movement",
+            "slow tracking shot",
+            "gentle parallax shift",
+            "subtle camera drift",
+            "slow reveal with depth",
+          ];
+          const sceneMotion = motionVariations[i % motionVariations.length];
+          const videoPrompt = `${sceneList[i].prompt}, ${motionPrompt}, ${sceneMotion}`;
+          
+          // Use unique seed per scene for video (same base + offset for consistency with variation)
+          const videoSeed = batchSeed ? batchSeed + i * 100 : undefined;
+          
           const videoPayload: Record<string, unknown> = {
             imageUrl,
-            prompt: `${sceneList[i].prompt}, ${motionPrompt}`,
+            prompt: videoPrompt,
             duration: Math.min(sceneList[i].duration, 10), // seedance supports up to 12s
             resolution: sizeConfig.maxArea, // "480p", "720p", or "1080p"
             aspectRatio: ASPECT_RATIOS[aspectRatio].value, // "16:9", "9:16", or "1:1"
             fps: fpsValue,
+            seed: videoSeed,
           };
           
-          // Note: For scene continuity, we already use the extracted frame as the starting image (imageUrl)
-          // The last_frame_image parameter is for specifying END frame, not for continuity
-          // So we DON'T pass lastFrameImage here - we just use the extracted frame as the starting image
-          console.log(`Scene ${i + 1}: Using image as starting frame for video generation`);
+          console.log(`Scene ${i + 1}: Using unique motion prompt and seed for variation`);
           
           // Start async video generation
           const videoRes = await supabase.functions.invoke("generate-video", {
