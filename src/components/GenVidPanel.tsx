@@ -704,11 +704,10 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
             fps: fpsValue,
           };
           
-          // Pass last frame from previous video for seamless transitions
-          if (useFrameContinuity && previousVideoLastFrame && i > 0) {
-            videoPayload.lastFrameImage = previousVideoLastFrame;
-            console.log(`Scene ${i + 1}: Passing last frame to video model for seamless transition`);
-          }
+          // Note: For scene continuity, we already use the extracted frame as the starting image (imageUrl)
+          // The last_frame_image parameter is for specifying END frame, not for continuity
+          // So we DON'T pass lastFrameImage here - we just use the extracted frame as the starting image
+          console.log(`Scene ${i + 1}: Using image as starting frame for video generation`);
           
           // Start async video generation
           const videoRes = await supabase.functions.invoke("generate-video", {
