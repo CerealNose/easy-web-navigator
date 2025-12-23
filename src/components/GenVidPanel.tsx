@@ -536,18 +536,32 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
         end: g.endTime,
         itemCount: g.items.length
       })));
+      console.log("Available sectionPrompts:", sectionPrompts);
       
       // Create one scene per section group
-      return sectionGroups.map((group) => {
+      return sectionGroups.map((group, idx) => {
         const duration = (group.endTime - group.startTime) * videoDurationMultiplier[0];
         const sectionContent = sections.find(s => s.name === group.name)?.text || 
                                group.items.map(i => i.text).join(' ');
         
         // Use section-specific prompt if available, otherwise fall back to global style
         const sectionSpecificPrompt = getSectionPrompt(group.name);
-        const prompt = sectionSpecificPrompt 
-          ? sectionSpecificPrompt 
-          : `${stylePrefix}, ${group.name.toLowerCase()}: ${sectionContent.slice(0, 100)}`;
+        
+        // Debug: log matching attempt
+        console.log(`Scene ${idx + 1} "${group.name}" -> matched prompt:`, 
+          sectionSpecificPrompt ? 'YES' : 'NO (using fallback)');
+        
+        // If no match found but we have sectionPrompts, use the one at this index as fallback
+        let prompt: string;
+        if (sectionSpecificPrompt) {
+          prompt = sectionSpecificPrompt;
+        } else if (sectionPrompts.length > idx && sectionPrompts[idx]?.prompt) {
+          // Fallback: use prompt at same index position
+          console.log(`Scene ${idx + 1}: Using index-based fallback from sectionPrompts[${idx}]`);
+          prompt = sectionPrompts[idx].prompt;
+        } else {
+          prompt = `${stylePrefix}, ${group.name.toLowerCase()}: ${sectionContent.slice(0, 100)}`;
+        }
         
         return {
           section: group.name,
@@ -565,9 +579,16 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
       return uploadedSchedule.map((item, index) => {
         const duration = (item.end - item.start) * videoDurationMultiplier[0];
         
-        const prompt = item.prompt 
-          ? `${stylePrefix}, ${item.prompt}` 
-          : `${stylePrefix}, scene: ${item.text.slice(0, 100)}`;
+        // Check if we have a section-specific prompt at this index
+        let prompt: string;
+        if (item.prompt) {
+          prompt = `${stylePrefix}, ${item.prompt}`;
+        } else if (sectionPrompts.length > index && sectionPrompts[index]?.prompt) {
+          // Use the AI-generated section prompt at this index
+          prompt = sectionPrompts[index].prompt;
+        } else {
+          prompt = `${stylePrefix}, scene: ${item.text.slice(0, 100)}`;
+        }
         
         return {
           section: `Scene ${index + 1}`,
@@ -606,16 +627,23 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
       }
       if (currentGroup) sectionGroups.push(currentGroup);
       
-      return sectionGroups.map((group) => {
+      return sectionGroups.map((group, idx) => {
         const duration = (group.endTime - group.startTime) * videoDurationMultiplier[0];
         const sectionContent = sections.find(s => s.name === group.name)?.text || 
                                group.timestamps.map(t => t.text).join(' ');
         
         // Use section-specific prompt if available, otherwise fall back to global style
         const sectionSpecificPrompt = getSectionPrompt(group.name);
-        const prompt = sectionSpecificPrompt 
-          ? sectionSpecificPrompt 
-          : `${stylePrefix}, ${group.name.toLowerCase()}: ${sectionContent.slice(0, 100)}`;
+        
+        // If no match found but we have sectionPrompts, use the one at this index as fallback
+        let prompt: string;
+        if (sectionSpecificPrompt) {
+          prompt = sectionSpecificPrompt;
+        } else if (sectionPrompts.length > idx && sectionPrompts[idx]?.prompt) {
+          prompt = sectionPrompts[idx].prompt;
+        } else {
+          prompt = `${stylePrefix}, ${group.name.toLowerCase()}: ${sectionContent.slice(0, 100)}`;
+        }
         
         return {
           section: group.name,
@@ -636,9 +664,16 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
         
         // Use section-specific prompt if available, otherwise fall back to global style
         const sectionSpecificPrompt = getSectionPrompt(section.name);
-        const prompt = sectionSpecificPrompt 
-          ? sectionSpecificPrompt 
-          : `${stylePrefix}, ${section.name.toLowerCase()}: ${section.text.slice(0, 100)}`;
+        
+        // If no match found but we have sectionPrompts, use the one at this index as fallback
+        let prompt: string;
+        if (sectionSpecificPrompt) {
+          prompt = sectionSpecificPrompt;
+        } else if (sectionPrompts.length > index && sectionPrompts[index]?.prompt) {
+          prompt = sectionPrompts[index].prompt;
+        } else {
+          prompt = `${stylePrefix}, ${section.name.toLowerCase()}: ${section.text.slice(0, 100)}`;
+        }
         
         return {
           section: section.name,
