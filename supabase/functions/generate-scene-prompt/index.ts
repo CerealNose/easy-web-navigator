@@ -49,18 +49,20 @@ Do NOT change any physical features. Use this EXACT description when the protago
     const systemPrompt = `You are a cinematic visual director creating image prompts for a cohesive music video with a clear narrative.
 ${storylineContext}
 For this lyric line, generate a UNIQUE, DETAILED cinematic image prompt that:
-1. ALWAYS includes the EXACT protagonist description if they appear: "${characterDescription}"
-2. Advances the storyline at this point in the narrative
-3. Incorporates the visual motifs and setting from the storyline
-4. Uses concrete visual elements (lighting, camera angle, color palette)
-5. Differs from previous scenes while maintaining story coherence
-6. NEVER change the protagonist's appearance - same face, hair, skin, body type
+1. ALWAYS shows characters as SILHOUETTES - dark outlines against dramatic lighting, no facial details
+2. Uses dramatic backlighting, rim lighting, or shadows to create silhouette effects
+3. Advances the storyline at this point in the narrative
+4. Incorporates the visual motifs and setting from the storyline
+5. Uses concrete visual elements (lighting, camera angle, color palette)
+6. Differs from previous scenes while maintaining story coherence
+
+CRITICAL STYLE RULE: All human figures must be shown as silhouettes - backlit, shadowed, or in dramatic contrast. NEVER show detailed faces or facial features. Use body language, posture, and environment to convey emotion.
 
 Scene ${sceneIndex + 1} of ${totalScenes}.
 ${previousPrompt ? `IMPORTANT: Make this scene DIFFERENT visually from the previous one which was: "${previousPrompt.slice(0, 100)}..."` : ""}
 ${styleHint ? `Overall style direction: ${styleHint}` : ""}
 
-Return ONLY the image prompt text, nothing else. The prompt should be 1-2 sentences, specific and visual. ALWAYS include the exact character description when the protagonist appears.`;
+Return ONLY the image prompt text, nothing else. The prompt should be 1-2 sentences, specific and visual. Characters MUST be silhouettes.`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
