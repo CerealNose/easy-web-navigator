@@ -64,7 +64,15 @@ serve(async (req) => {
     }
 
     // New video generation request
-    const { imageUrl, prompt, duration = 5, seed } = body;
+    const { 
+      imageUrl, 
+      prompt, 
+      duration = 5, 
+      seed, 
+      resolution = "480p",
+      fps = 24,
+      lastFrameImage 
+    } = body;
 
     if (!imageUrl) {
       return new Response(
@@ -77,14 +85,24 @@ serve(async (req) => {
     console.log("Prompt:", prompt);
     console.log("Image URL (first 100 chars):", imageUrl.substring(0, 100));
     console.log("Duration:", duration);
+    console.log("Resolution:", resolution);
+    console.log("FPS:", fps);
+    console.log("Last frame image provided:", !!lastFrameImage);
 
     // Create prediction with seedance-1-lite
-    // Model accepts: image, prompt, duration (5 or 10), seed
+    // Model accepts: image, prompt, duration (2-12), resolution, fps, last_frame_image, seed
     const input: Record<string, unknown> = {
       image: imageUrl,
       prompt: prompt || "cinematic motion, smooth camera movement",
-      duration: duration <= 5 ? 5 : 10, // seedance-1-lite supports 5 or 10 second videos
+      duration: Math.min(Math.max(duration, 2), 12), // clamp between 2-12 seconds
+      resolution: resolution, // "480p", "720p", or "1080p"
+      fps: fps, // default 24
     };
+
+    // Add last_frame_image for scene continuity if provided
+    if (lastFrameImage) {
+      input.last_frame_image = lastFrameImage;
+    }
 
     // Add seed if provided for consistency
     if (seed !== undefined && seed !== null) {
