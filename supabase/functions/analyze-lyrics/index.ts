@@ -94,7 +94,7 @@ For EACH SECTION, generate a prompt that:
                       },
                       protagonist: {
                         type: "string",
-                        description: "Description of the main subject/character"
+                        description: "EXTREMELY DETAILED physical description of the main character for visual consistency. MUST include: exact age, gender, ethnicity, skin tone, hair color/style/length, eye color, facial features, body type, height, distinctive marks. Be VERY specific so the character looks identical in every scene. Example: 'A 25-year-old East Asian woman with long straight black hair reaching her waist, warm brown almond-shaped eyes, delicate facial features with high cheekbones, fair porcelain skin, slender build, approximately 5'6 tall, wearing minimal makeup'"
                       },
                       setting: {
                         type: "string",
