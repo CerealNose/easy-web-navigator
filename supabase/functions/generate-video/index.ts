@@ -102,7 +102,9 @@ serve(async (req) => {
       fps: 24, // seedance-1-lite only supports 24 fps
     };
 
-    // Add last_frame_image for scene continuity if provided
+    // Note: last_frame_image is for specifying END frame, not for scene continuity
+    // For scene continuity, we use the extracted frame as the starting "image" parameter
+    // Only add last_frame_image if user wants to specify a specific ending frame
     if (lastFrameImage) {
       input.last_frame_image = lastFrameImage;
     }
