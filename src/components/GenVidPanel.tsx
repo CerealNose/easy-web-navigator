@@ -148,6 +148,66 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
   const [referenceImage, setReferenceImage] = useState<{ file: File; preview: string } | null>(null);
   const [referenceStylePrompt, setReferenceStylePrompt] = useState<string>("");
   const [isAnalyzingStyle, setIsAnalyzingStyle] = useState(false);
+  const [useFrameContinuity, setUseFrameContinuity] = useState(true);
+  const [isExtractingFrame, setIsExtractingFrame] = useState(false);
+
+  // Extract the last frame from a video URL as base64
+  const extractLastFrame = async (videoUrl: string): Promise<string | null> => {
+    return new Promise((resolve) => {
+      const video = document.createElement('video');
+      video.crossOrigin = 'anonymous';
+      video.muted = true;
+      video.playsInline = true;
+      
+      const timeoutId = setTimeout(() => {
+        console.warn('Frame extraction timed out');
+        video.remove();
+        resolve(null);
+      }, 30000); // 30s timeout
+      
+      video.onloadedmetadata = () => {
+        // Seek to near the end (last 0.1 seconds)
+        video.currentTime = Math.max(0, video.duration - 0.1);
+      };
+      
+      video.onseeked = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          const ctx = canvas.getContext('2d');
+          
+          if (ctx) {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const base64 = canvas.toDataURL('image/jpeg', 0.9);
+            clearTimeout(timeoutId);
+            video.remove();
+            canvas.remove();
+            resolve(base64);
+          } else {
+            clearTimeout(timeoutId);
+            video.remove();
+            resolve(null);
+          }
+        } catch (err) {
+          console.error('Frame extraction error:', err);
+          clearTimeout(timeoutId);
+          video.remove();
+          resolve(null);
+        }
+      };
+      
+      video.onerror = () => {
+        console.error('Video load error for frame extraction');
+        clearTimeout(timeoutId);
+        video.remove();
+        resolve(null);
+      };
+      
+      video.src = videoUrl;
+      video.load();
+    });
+  };
 
   // Get the active style prefix based on source selection
   const getStylePrefix = (): string => {
@@ -538,14 +598,31 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
       setBaseSeed(batchSeed);
     }
 
+    // Track the last frame from previous video for continuity
+    let previousVideoLastFrame: string | null = null;
+
     for (let i = 0; i < sceneList.length; i++) {
       setCurrentSceneIndex(i);
       
       try {
         let imageUrl: string;
         
-        // Check if we have an uploaded image for this scene
-        if (uploadedImages[i]) {
+        // Priority for image source:
+        // 1. Frame continuity - use last frame from previous video (if enabled and available)
+        // 2. Uploaded image for this specific scene
+        // 3. Generate new image with AI
+        
+        if (useFrameContinuity && previousVideoLastFrame && i > 0) {
+          // Use the last frame from previous video as starting point
+          console.log(`Scene ${i + 1}: Using last frame from scene ${i} for continuity`);
+          imageUrl = previousVideoLastFrame;
+          
+          setScenes(prev => prev.map((s, idx) => 
+            idx === i ? { ...s, imageUrl: previousVideoLastFrame!, status: autoGenerateVideo ? 'generating-video' : 'complete' } : s
+          ));
+          
+          toast.info(`Scene ${i + 1}: Using frame continuity from previous clip`);
+        } else if (uploadedImages[i]) {
           // Convert uploaded image to base64 for the video generation API
           const file = uploadedImages[i].file;
           const base64 = await fileToBase64(file);
@@ -666,6 +743,22 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
           setScenes(prev => prev.map((s, idx) => 
             idx === i ? { ...s, videoUrl, status: 'complete' } : s
           ));
+          
+          // Extract last frame for continuity with next scene
+          if (useFrameContinuity && videoUrl) {
+            setIsExtractingFrame(true);
+            console.log(`Scene ${i + 1}: Extracting last frame for continuity...`);
+            const lastFrame = await extractLastFrame(videoUrl);
+            setIsExtractingFrame(false);
+            
+            if (lastFrame) {
+              previousVideoLastFrame = lastFrame;
+              console.log(`Scene ${i + 1}: Last frame extracted successfully`);
+            } else {
+              console.warn(`Scene ${i + 1}: Failed to extract last frame, next scene will use AI generation`);
+              previousVideoLastFrame = null;
+            }
+          }
           
           // Add delay between scene video generations to avoid rate limits
           await new Promise(resolve => setTimeout(resolve, 2000));
@@ -1374,6 +1467,18 @@ Generated by LyricVision on ${new Date().toLocaleDateString()}
               <p className="text-xs text-muted-foreground">Use related seeds for cohesive imagery</p>
             </div>
             <Switch checked={useConsistentSeed} onCheckedChange={setUseConsistentSeed} />
+          </div>
+
+          {/* Frame Continuity Toggle */}
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="text-sm flex items-center gap-2">
+                Frame continuity
+                {isExtractingFrame && <Loader2 className="w-3 h-3 animate-spin" />}
+              </Label>
+              <p className="text-xs text-muted-foreground">Use last frame of each clip as input for next</p>
+            </div>
+            <Switch checked={useFrameContinuity} onCheckedChange={setUseFrameContinuity} />
           </div>
 
           {/* Custom Seed Input */}
