@@ -119,10 +119,33 @@ Deno.serve(async (req) => {
 
   } catch (error) {
     console.error("Error in generate-image:", error);
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+
+    const anyErr = error as any;
+    const upstreamStatus: number | undefined =
+      typeof anyErr?.response?.status === "number" ? anyErr.response.status : undefined;
+
+    const msg = error instanceof Error ? error.message : String(error);
+
+    // If Replicate returns a non-2xx (e.g., 402 insufficient credit, 429 rate limit),
+    // propagate that status so the client can handle it properly.
+    const status =
+      upstreamStatus ??
+      (msg.includes("402") || msg.includes("Payment Required")
+        ? 402
+        : msg.includes("429") || msg.includes("Too Many Requests")
+          ? 429
+          : 500);
+
+    const userMessage =
+      status === 402
+        ? "Replicate billing issue: insufficient credit. Please top up your Replicate account and try again."
+        : status === 429
+          ? "Replicate rate limit hit. Please wait a bit and try again."
+          : msg;
+
+    return new Response(JSON.stringify({ error: userMessage }), {
+      status,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });
