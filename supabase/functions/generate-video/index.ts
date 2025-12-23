@@ -1,149 +1,120 @@
-/// <reference types="https://esm.sh/@supabase/functions-js/src/edge-runtime.d.ts" />
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import Replicate from "https://esm.sh/replicate@0.25.2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-Deno.serve(async (req) => {
+serve(async (req) => {
+  // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const MINIMAX_API_KEY = Deno.env.get("MINIMAX_API_KEY");
-    if (!MINIMAX_API_KEY) {
-      throw new Error("MINIMAX_API_KEY is not configured");
+    const REPLICATE_API_KEY = Deno.env.get("REPLICATE_API_KEY");
+    if (!REPLICATE_API_KEY) {
+      console.error("REPLICATE_API_KEY is not configured");
+      return new Response(
+        JSON.stringify({ error: "REPLICATE_API_KEY is not configured" }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
+      );
     }
 
+    const replicate = new Replicate({ auth: REPLICATE_API_KEY });
     const body = await req.json();
-    const { imageUrl, prompt, duration = 6, resolution = "720P", taskId, predictionId } = body;
 
-    // Support both taskId (new Minimax) and predictionId (legacy Replicate) parameter names
-    const videoTaskId = taskId || predictionId;
+    // If it's a status check request (polling for prediction result)
+    if (body.taskId) {
+      console.log("Checking status for prediction:", body.taskId);
+      
+      try {
+        const prediction = await replicate.predictions.get(body.taskId);
+        console.log("Prediction status:", prediction.status);
 
-    // Check if this is a status check request
-    if (videoTaskId) {
-      console.log("Checking task status:", videoTaskId);
-      
-      // Query task status
-      const queryResponse = await fetch(
-        `https://api.minimax.io/v1/query/video_generation?task_id=${videoTaskId}`,
-        {
-          method: "GET",
-          headers: {
-            "Authorization": `Bearer ${MINIMAX_API_KEY}`,
-          },
-        }
-      );
-      
-      const queryData = await queryResponse.json();
-      console.log("Task status response:", JSON.stringify(queryData));
-      
-      const status = queryData.status;
-      const statusMsg = queryData.base_resp?.status_msg || "";
-      
-      if (status === "Success" && queryData.file_id) {
-        // Get the download URL for the video
-        const fileResponse = await fetch(
-          `https://api.minimax.io/v1/files/retrieve?file_id=${queryData.file_id}`,
-          {
-            method: "GET",
-            headers: {
-              "Authorization": `Bearer ${MINIMAX_API_KEY}`,
-            },
-          }
-        );
-        
-        const fileData = await fileResponse.json();
-        console.log("File retrieve response:", JSON.stringify(fileData));
-        
-        if (fileData.file?.download_url) {
+        if (prediction.status === "succeeded") {
+          // seedance-1-lite returns the video URL directly in output
+          const videoUrl = prediction.output;
+          console.log("Video ready:", videoUrl);
           return new Response(
-            JSON.stringify({ 
-              videoUrl: fileData.file.download_url, 
-              status: "succeeded" 
-            }),
+            JSON.stringify({ status: "succeeded", videoUrl }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        } else if (prediction.status === "failed" || prediction.status === "canceled") {
+          console.error("Prediction failed:", prediction.error);
+          return new Response(
+            JSON.stringify({ status: "failed", error: prediction.error || "Video generation failed" }),
             { headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         } else {
-          throw new Error("Failed to get download URL");
+          // Still processing (starting, processing, etc.)
+          return new Response(
+            JSON.stringify({ status: prediction.status }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
         }
-      } else if (status === "Fail") {
-        // Provide more context about common failure reasons
-        let errorMessage = statusMsg || "Video generation failed";
-        if (statusMsg === "unexpected error") {
-          errorMessage = "Video generation failed - the image may be inaccessible or invalid. Ensure the image URL is publicly accessible.";
-        }
-        console.error("Video generation failed:", errorMessage);
-        
+      } catch (pollError) {
+        console.error("Error polling prediction:", pollError);
         return new Response(
-          JSON.stringify({ 
-            error: errorMessage, 
-            status: "failed" 
-          }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      } else {
-        // Still processing (Preparing, Queueing, Processing)
-        return new Response(
-          JSON.stringify({ status: status.toLowerCase(), taskId: videoTaskId }),
+          JSON.stringify({ status: "processing", message: "Still processing, will retry" }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
     }
 
     // New video generation request
+    const { imageUrl, prompt, duration = 5, seed } = body;
+
     if (!imageUrl) {
       return new Response(
-        JSON.stringify({ error: "Image URL is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({ error: "imageUrl is required" }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 }
       );
     }
 
-    console.log("Generating video from image:", imageUrl.substring(0, 50) + "...");
+    console.log("Starting video generation with seedance-1-lite");
     console.log("Prompt:", prompt);
+    console.log("Image URL (first 100 chars):", imageUrl.substring(0, 100));
     console.log("Duration:", duration);
-    console.log("Resolution:", resolution);
 
-    // Start async video generation with Minimax
-    const generateResponse = await fetch("https://api.minimax.io/v1/video_generation", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${MINIMAX_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "I2V-01-Director",
-        first_frame_image: imageUrl,
-        prompt: prompt || "cinematic motion, slow camera movement, atmospheric",
-        prompt_optimizer: true,
-      }),
-    });
+    // Create prediction with seedance-1-lite
+    // Model accepts: image, prompt, duration (5 or 10), seed
+    const input: Record<string, unknown> = {
+      image: imageUrl,
+      prompt: prompt || "cinematic motion, smooth camera movement",
+      duration: duration <= 5 ? 5 : 10, // seedance-1-lite supports 5 or 10 second videos
+    };
 
-    const generateData = await generateResponse.json();
-    console.log("Generation response:", JSON.stringify(generateData));
-
-    if (generateData.base_resp?.status_code !== 0) {
-      throw new Error(generateData.base_resp?.status_msg || "Failed to start video generation");
+    // Add seed if provided for consistency
+    if (seed !== undefined && seed !== null) {
+      input.seed = seed;
     }
 
-    console.log("Task started:", generateData.task_id);
+    console.log("Replicate input:", JSON.stringify(input, null, 2));
+
+    const prediction = await replicate.predictions.create({
+      model: "bytedance/seedance-1-lite",
+      input,
+    });
+
+    console.log("Prediction created:", prediction.id, "Status:", prediction.status);
 
     return new Response(
       JSON.stringify({ 
-        taskId: generateData.task_id, 
-        status: "processing" 
+        taskId: prediction.id, 
+        status: "processing",
+        message: "Video generation started"
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
-  } catch (error) {
-    console.error("Error in generate-video:", error);
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+  } catch (error: unknown) {
+    console.error("Error in generate-video function:", error);
+    const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
     return new Response(
       JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
     );
   }
 });
