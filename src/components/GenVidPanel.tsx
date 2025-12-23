@@ -83,10 +83,9 @@ const MOTION_PRESETS = {
 };
 
 const VIDEO_SIZES = {
-  "480p": { label: "480p (854×480)", width: 854, height: 480, maxArea: "480p" },
-  "720p": { label: "720p (1280×720)", width: 1280, height: 720, maxArea: "720p" },
-  "portrait": { label: "Portrait (480×854)", width: 480, height: 854, maxArea: "480p" },
-  "square": { label: "Square (720×720)", width: 720, height: 720, maxArea: "720p" },
+  "480p": { label: "480p (SD)", width: 854, height: 480, maxArea: "480p" },
+  "720p": { label: "720p (HD)", width: 1280, height: 720, maxArea: "720p" },
+  "1080p": { label: "1080p (Full HD)", width: 1920, height: 1080, maxArea: "1080p" },
 };
 
 const FPS_OPTIONS = {
