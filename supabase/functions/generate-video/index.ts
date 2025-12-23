@@ -133,7 +133,7 @@ serve(async (req) => {
     const input: Record<string, unknown> = {
       image: imageUrl,
       prompt: prompt || "cinematic motion, smooth camera movement",
-      duration: Math.min(Math.max(duration, 2), 12), // clamp between 2-12 seconds
+      duration: Math.round(Math.min(Math.max(duration, 2), 12)), // clamp between 2-12 seconds and ensure integer
       resolution: resolution, // "480p", "720p", or "1080p"
       aspect_ratio: aspectRatio, // "16:9", "9:16", or "1:1"
       fps: 24, // seedance-1-lite only supports 24 fps
