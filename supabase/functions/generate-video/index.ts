@@ -174,10 +174,31 @@ serve(async (req) => {
 
   } catch (error: unknown) {
     console.error("Error in generate-video function:", error);
-    const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
-    );
+
+    const anyErr = error as any;
+    const upstreamStatus: number | undefined =
+      typeof anyErr?.response?.status === "number" ? anyErr.response.status : undefined;
+
+    const msg = error instanceof Error ? error.message : String(error);
+
+    const status =
+      upstreamStatus ??
+      (msg.includes("402") || msg.includes("Payment Required")
+        ? 402
+        : msg.includes("429") || msg.includes("Too Many Requests")
+          ? 429
+          : 500);
+
+    const userMessage =
+      status === 402
+        ? "Replicate billing issue: insufficient credit. Please top up your Replicate account and try again."
+        : status === 429
+          ? "Replicate rate limit hit. Please wait a bit and try again."
+          : msg;
+
+    return new Response(JSON.stringify({ error: userMessage }), {
+      status,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });
