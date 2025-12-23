@@ -11,7 +11,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { lyricLine, sceneIndex, totalScenes, styleHint, previousPrompt } = await req.json();
+    const { lyricLine, sceneIndex, totalScenes, styleHint, previousPrompt, storyline, narrativeBeat } = await req.json();
 
     if (!lyricLine || typeof lyricLine !== "string") {
       return new Response(
@@ -25,17 +25,31 @@ Deno.serve(async (req) => {
       throw new Error("LOVABLE_API_KEY not configured");
     }
 
-    const systemPrompt = `You are a cinematic visual director creating image prompts for music video scenes.
+    // Build storyline context if available
+    let storylineContext = "";
+    if (storyline) {
+      storylineContext = `
+STORYLINE CONTEXT:
+- Story: ${storyline.summary || ""}
+- Protagonist: ${storyline.protagonist || ""}
+- Setting: ${storyline.setting || ""}
+- Emotional Arc: ${storyline.emotionalArc || ""}
+- Visual Motifs to include: ${(storyline.visualMotifs || []).join(", ")}
+${narrativeBeat ? `- This scene's narrative beat: ${narrativeBeat}` : ""}
+`;
+    }
 
-For each lyric line, generate a UNIQUE, DETAILED cinematic image prompt that:
-1. Captures the emotion and narrative of that specific lyric
-2. Uses concrete visual elements (setting, lighting, camera angle, color palette)
-3. Differs significantly from previous scenes for visual variety
-4. Maintains cinematic quality and mood
+    const systemPrompt = `You are a cinematic visual director creating image prompts for a cohesive music video with a clear narrative.
+${storylineContext}
+For this lyric line, generate a UNIQUE, DETAILED cinematic image prompt that:
+1. Advances the storyline at this point in the narrative
+2. Incorporates the visual motifs and setting from the storyline
+3. Uses concrete visual elements (lighting, camera angle, color palette)
+4. Differs from previous scenes while maintaining story coherence
 
 Scene ${sceneIndex + 1} of ${totalScenes}.
-${previousPrompt ? `IMPORTANT: Make this scene DIFFERENT from the previous one which was: "${previousPrompt.slice(0, 100)}..."` : ''}
-${styleHint ? `Overall style direction: ${styleHint}` : ''}
+${previousPrompt ? `IMPORTANT: Make this scene DIFFERENT visually from the previous one which was: "${previousPrompt.slice(0, 100)}..."` : ""}
+${styleHint ? `Overall style direction: ${styleHint}` : ""}
 
 Return ONLY the image prompt text, nothing else. The prompt should be 1-2 sentences, specific and visual.`;
 

@@ -36,19 +36,25 @@ Deno.serve(async (req) => {
         messages: [
           {
             role: "system",
-            content: `You are a lyrical analysis AI specializing in music video visualization. Analyze the lyrics to detect emotions, moods, and visual themes. 
+            content: `You are a lyrical analysis AI specializing in music video visualization and storytelling. Analyze the lyrics to:
+1. Detect emotions, moods, and visual themes
+2. Create a cohesive STORYLINE/NARRATIVE ARC that the music video will tell
+3. Generate unique visual prompts for each section that follow this storyline
 
-For EACH SECTION of the song (marked with [Section Name]), generate a UNIQUE and DISTINCT cinematic image prompt that:
-1. Captures the specific emotion and narrative of THAT section
-2. Progresses visually through the song's story arc
-3. Uses different settings, lighting, and compositions for variety
-4. Maintains visual coherence while showing emotional evolution
+The storyline should describe:
+- The protagonist/subject and their journey
+- The emotional arc (beginning state → conflict/tension → resolution)
+- Key visual motifs that recur throughout
+- The setting and world of the video
 
-The sections should feel like a cohesive music video with visual variety, not the same scene repeated.`
+For EACH SECTION, generate a prompt that:
+- Advances the storyline at that point in the narrative
+- Maintains visual and thematic coherence with other sections
+- Uses different settings, lighting, and compositions for variety`
           },
           {
             role: "user",
-            content: `Analyze these lyrics and create unique visual prompts for each section:\n\n${lyrics}`
+            content: `Analyze these lyrics and create a storyline with unique visual prompts for each section:\n\n${lyrics}`
           }
         ],
         tools: [
@@ -56,7 +62,7 @@ The sections should feel like a cohesive music video with visual variety, not th
             type: "function",
             function: {
               name: "analyze_lyrics_result",
-              description: "Return the analysis of the lyrics with per-section visual prompts",
+              description: "Return the analysis of the lyrics with storyline and per-section visual prompts",
               parameters: {
                 type: "object",
                 properties: {
@@ -78,30 +84,62 @@ The sections should feel like a cohesive music video with visual variety, not th
                     items: { type: "string" },
                     description: "Primary emotions detected"
                   },
+                  storyline: {
+                    type: "object",
+                    description: "The narrative arc and storyline for the music video",
+                    properties: {
+                      summary: {
+                        type: "string",
+                        description: "2-3 sentence summary of the video's story/concept"
+                      },
+                      protagonist: {
+                        type: "string",
+                        description: "Description of the main subject/character"
+                      },
+                      setting: {
+                        type: "string",
+                        description: "The world/environment where the story takes place"
+                      },
+                      emotionalArc: {
+                        type: "string",
+                        description: "The emotional journey from start to finish (e.g., 'loneliness → connection → hope')"
+                      },
+                      visualMotifs: {
+                        type: "array",
+                        items: { type: "string" },
+                        description: "Recurring visual symbols/elements (e.g., 'rain', 'neon lights', 'empty streets')"
+                      }
+                    },
+                    required: ["summary", "protagonist", "setting", "emotionalArc", "visualMotifs"]
+                  },
                   moodPrompt: {
                     type: "string",
                     description: "Overall cinematic style and mood that ties all scenes together"
                   },
                   sectionPrompts: {
                     type: "array",
-                    description: "Unique visual prompts for each section of the song",
+                    description: "Unique visual prompts for each section that advance the storyline",
                     items: {
                       type: "object",
                       properties: {
                         section: { 
                           type: "string", 
-                          description: "Section name exactly as it appears in lyrics (e.g., 'Intro', 'Verse 1', 'Chorus')" 
+                          description: "Section name exactly as it appears in lyrics" 
+                        },
+                        narrativeBeat: {
+                          type: "string",
+                          description: "What happens in the story at this point (1 sentence)"
                         },
                         prompt: { 
                           type: "string", 
-                          description: "Detailed cinematic image prompt unique to this section - include setting, lighting, mood, camera angle, symbolic elements. Should be different from other sections." 
+                          description: "Detailed cinematic image prompt for this story moment - include setting, lighting, mood, camera angle, symbolic elements" 
                         }
                       },
-                      required: ["section", "prompt"]
+                      required: ["section", "narrativeBeat", "prompt"]
                     }
                   }
                 },
-                required: ["themes", "emotions", "moodPrompt", "sectionPrompts"]
+                required: ["themes", "emotions", "storyline", "moodPrompt", "sectionPrompts"]
               }
             }
           }

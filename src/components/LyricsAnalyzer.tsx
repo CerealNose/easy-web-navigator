@@ -21,10 +21,19 @@ interface Section {
 interface SectionPrompt {
   section: string;
   prompt: string;
+  narrativeBeat?: string;
+}
+
+interface Storyline {
+  summary: string;
+  protagonist: string;
+  setting: string;
+  emotionalArc: string;
+  visualMotifs: string[];
 }
 
 interface LyricsAnalyzerProps {
-  onAnalyze: (prompt: string, themes: Theme[], sections: Section[], sectionPrompts: SectionPrompt[]) => void;
+  onAnalyze: (prompt: string, themes: Theme[], sections: Section[], sectionPrompts: SectionPrompt[], storyline?: Storyline) => void;
 }
 
 // Parse [Section] markers from lyrics
@@ -92,9 +101,12 @@ export function LyricsAnalyzer({ onAnalyze }: LyricsAnalyzerProps) {
       }));
 
       const sectionPrompts: SectionPrompt[] = data.sectionPrompts || [];
+      const storyline: Storyline | undefined = data.storyline;
       
-      onAnalyze(data.moodPrompt || "", themes, sections, sectionPrompts);
-      toast.success(`Analyzed ${sections.length} sections with unique prompts!`);
+      console.log("Generated storyline:", storyline);
+      
+      onAnalyze(data.moodPrompt || "", themes, sections, sectionPrompts, storyline);
+      toast.success(`Analyzed ${sections.length} sections with storyline!`);
     } catch (err) {
       console.error("Analysis error:", err);
       setError(err instanceof Error ? err.message : "Failed to analyze lyrics");

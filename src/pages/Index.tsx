@@ -21,6 +21,15 @@ interface Section {
 interface SectionPrompt {
   section: string;
   prompt: string;
+  narrativeBeat?: string;
+}
+
+interface Storyline {
+  summary: string;
+  protagonist: string;
+  setting: string;
+  emotionalArc: string;
+  visualMotifs: string[];
 }
 
 interface Timestamp {
@@ -37,13 +46,15 @@ const Index = () => {
   const [themes, setThemes] = useState<Theme[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
   const [sectionPrompts, setSectionPrompts] = useState<SectionPrompt[]>([]);
+  const [storyline, setStoryline] = useState<Storyline | undefined>();
   const [timestamps, setTimestamps] = useState<Timestamp[]>([]);
 
-  const handleAnalyze = (prompt: string, detectedThemes: Theme[], detectedSections: Section[], detectedSectionPrompts: SectionPrompt[]) => {
+  const handleAnalyze = (prompt: string, detectedThemes: Theme[], detectedSections: Section[], detectedSectionPrompts: SectionPrompt[], detectedStoryline?: Storyline) => {
     setMoodPrompt(prompt);
     setThemes(detectedThemes);
     setSections(detectedSections);
     setSectionPrompts(detectedSectionPrompts);
+    setStoryline(detectedStoryline);
     setActiveTab("mood");
   };
 
@@ -118,7 +129,7 @@ const Index = () => {
               />
             )}
             {activeTab === "genvid" && (
-              <GenVidPanel sections={sections} timestamps={timestamps} moodPrompt={moodPrompt} sectionPrompts={sectionPrompts} />
+              <GenVidPanel sections={sections} timestamps={timestamps} moodPrompt={moodPrompt} sectionPrompts={sectionPrompts} storyline={storyline} />
             )}
           </section>
         </div>
