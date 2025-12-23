@@ -661,16 +661,27 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
         // Generate video if enabled
         if (autoGenerateVideo) {
           const motionPrompt = MOTION_PRESETS[motionPreset].prompt;
+          const sizeConfig = VIDEO_SIZES[videoSize];
+          const fpsValue = FPS_OPTIONS[videoFps].value;
+          
+          // Prepare video generation payload
+          const videoPayload: Record<string, unknown> = {
+            imageUrl,
+            prompt: `${sceneList[i].prompt}, ${motionPrompt}`,
+            duration: Math.min(sceneList[i].duration, 10), // seedance supports up to 12s
+            resolution: sizeConfig.maxArea, // "480p", "720p", or "1080p"
+            fps: fpsValue,
+          };
+          
+          // Pass last frame from previous video for seamless transitions
+          if (useFrameContinuity && previousVideoLastFrame && i > 0) {
+            videoPayload.lastFrameImage = previousVideoLastFrame;
+            console.log(`Scene ${i + 1}: Passing last frame to video model for seamless transition`);
+          }
           
           // Start async video generation
           const videoRes = await supabase.functions.invoke("generate-video", {
-            body: {
-              imageUrl,
-              prompt: `${sceneList[i].prompt}, ${motionPrompt}`,
-              duration: Math.min(sceneList[i].duration, 3),
-              maxArea: sizeConfig.maxArea,
-              fps: fpsValue,
-            },
+            body: videoPayload,
           });
 
           if (videoRes.error) {
