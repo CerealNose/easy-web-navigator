@@ -70,6 +70,7 @@ serve(async (req) => {
       duration = 5, 
       seed, 
       resolution = "480p",
+      aspectRatio = "16:9",
       fps = 24,
       lastFrameImage 
     } = body;
@@ -86,16 +87,18 @@ serve(async (req) => {
     console.log("Image URL (first 100 chars):", imageUrl.substring(0, 100));
     console.log("Duration:", duration);
     console.log("Resolution:", resolution);
+    console.log("Aspect Ratio:", aspectRatio);
     console.log("FPS:", fps);
     console.log("Last frame image provided:", !!lastFrameImage);
 
     // Create prediction with seedance-1-lite
-    // Model accepts: image, prompt, duration (2-12), resolution, fps, last_frame_image, seed
+    // Model accepts: image, prompt, duration (2-12), resolution, aspect_ratio, fps, last_frame_image, seed
     const input: Record<string, unknown> = {
       image: imageUrl,
       prompt: prompt || "cinematic motion, smooth camera movement",
       duration: Math.min(Math.max(duration, 2), 12), // clamp between 2-12 seconds
       resolution: resolution, // "480p", "720p", or "1080p"
+      aspect_ratio: aspectRatio, // "16:9", "9:16", or "1:1"
       fps: fps, // default 24
     };
 
