@@ -866,9 +866,28 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
         let scenePrompt = sceneList[i].prompt;
         
         // Get the lyric text for this scene to generate a unique prompt
-        const lyricText = uploadedSchedule[i]?.text || 
-                          sections[i]?.text?.split('\n')[0] || 
-                          sceneList[i].section;
+        // Priority: uploaded schedule text > timestamp lyrics > section lyrics > section name
+        let lyricText = "";
+        if (uploadedSchedule[i]?.text) {
+          lyricText = uploadedSchedule[i].text;
+        } else if (timestamps.length > 0) {
+          // Find timestamps that fall within this scene's time range
+          const sceneTimestamps = timestamps.filter(
+            ts => ts.start >= sceneList[i].start && ts.start < sceneList[i].end
+          );
+          if (sceneTimestamps.length > 0) {
+            lyricText = sceneTimestamps.map(ts => ts.text).join(' ');
+          }
+        }
+        // Fallback to section text or section name
+        if (!lyricText && sections[i]?.text) {
+          lyricText = sections[i].text;
+        }
+        if (!lyricText) {
+          lyricText = sceneList[i].section;
+        }
+        
+        console.log(`Scene ${i + 1} lyrics:`, lyricText.slice(0, 100));
         
         // Call AI to generate a unique prompt for this scene
         toast.info(`Scene ${i + 1}: Generating unique visual prompt...`);
