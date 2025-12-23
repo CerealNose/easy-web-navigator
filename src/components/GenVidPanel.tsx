@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -174,6 +174,69 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
   const [avgClipDuration, setAvgClipDuration] = useState<number | null>(null);
   const [completedClipDurations, setCompletedClipDurations] = useState<number[]>([]);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [orphanedTaskIds, setOrphanedTaskIds] = useState<string[]>([]);
+
+  // LocalStorage key for pending jobs
+  const PENDING_JOBS_KEY = 'genvid_pending_jobs';
+
+  // Save pending jobs to localStorage
+  const savePendingJobs = useCallback((taskIds: string[]) => {
+    try {
+      if (taskIds.length > 0) {
+        localStorage.setItem(PENDING_JOBS_KEY, JSON.stringify(taskIds));
+      } else {
+        localStorage.removeItem(PENDING_JOBS_KEY);
+      }
+    } catch (e) {
+      console.error('Failed to save pending jobs:', e);
+    }
+  }, []);
+
+  // Load orphaned jobs on mount
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(PENDING_JOBS_KEY);
+      if (stored) {
+        const taskIds = JSON.parse(stored) as string[];
+        if (taskIds.length > 0) {
+          setOrphanedTaskIds(taskIds);
+          toast.warning(`Found ${taskIds.length} orphaned video jobs from previous session. Cancel them to stop credit usage.`);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load pending jobs:', e);
+    }
+  }, []);
+
+  // Update localStorage when scenes change
+  useEffect(() => {
+    const pendingTaskIds = scenes
+      .filter(s => s.taskId && (s.status === 'processing' || s.status === 'generating-video'))
+      .map(s => s.taskId!)
+      .filter(Boolean);
+    
+    // Merge with orphaned (but filter out completed ones)
+    const allPending = [...new Set([...pendingTaskIds, ...orphanedTaskIds])];
+    savePendingJobs(allPending);
+  }, [scenes, orphanedTaskIds, savePendingJobs]);
+
+  // Warn before leaving page if jobs are pending
+  useEffect(() => {
+    const pendingCount = scenes.filter(s => s.status === 'processing' || s.status === 'generating-video').length + orphanedTaskIds.length;
+    
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (pendingCount > 0) {
+        e.preventDefault();
+        e.returnValue = 'You have pending video generation jobs. They will continue to use credits if you leave. Are you sure?';
+        return e.returnValue;
+      }
+    };
+
+    if (pendingCount > 0) {
+      window.addEventListener('beforeunload', handleBeforeUnload);
+      return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }
+  }, [scenes, orphanedTaskIds]);
 
   // Extract the last frame from a video URL as base64 (compressed and resized)
   const extractLastFrame = async (videoUrl: string): Promise<string | null> => {
@@ -1015,35 +1078,43 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
     toast.success("Video generation complete!");
   };
 
-  // Cancel all pending/processing video generation jobs
+  // Cancel all pending/processing video generation jobs (including orphaned ones)
   const cancelAllJobs = async () => {
     const pendingScenes = scenes.filter(s => s.taskId && (s.status === 'processing' || s.status === 'generating-video'));
+    const allTaskIds = [...new Set([
+      ...pendingScenes.map(s => s.taskId!),
+      ...orphanedTaskIds
+    ])];
     
-    if (pendingScenes.length === 0) {
+    if (allTaskIds.length === 0) {
       toast.info("No pending jobs to cancel");
       return;
     }
 
     setIsCancelling(true);
-    toast.info(`Cancelling ${pendingScenes.length} pending jobs...`);
+    toast.info(`Cancelling ${allTaskIds.length} pending jobs...`);
 
     let cancelled = 0;
-    for (const scene of pendingScenes) {
+    for (const taskId of allTaskIds) {
       try {
         await supabase.functions.invoke("generate-video", {
-          body: { action: "cancel", taskId: scene.taskId }
+          body: { action: "cancel", taskId }
         });
         cancelled++;
         
-        // Update scene status
+        // Update scene status if it exists in scenes
         setScenes(prev => prev.map(s => 
-          s.taskId === scene.taskId ? { ...s, status: 'error' as const } : s
+          s.taskId === taskId ? { ...s, status: 'error' as const } : s
         ));
       } catch (err) {
-        console.error(`Failed to cancel job ${scene.taskId}:`, err);
+        console.error(`Failed to cancel job ${taskId}:`, err);
       }
     }
 
+    // Clear orphaned task IDs and localStorage
+    setOrphanedTaskIds([]);
+    localStorage.removeItem(PENDING_JOBS_KEY);
+    
     setIsCancelling(false);
     setIsGenerating(false);
     toast.success(`Cancelled ${cancelled} jobs`);
@@ -1961,7 +2032,7 @@ Generated by LyricVision on ${new Date().toLocaleDateString()}
           )}
         </Button>
 
-        {(isGenerating || processingCount > 0) && (
+        {(isGenerating || processingCount > 0 || orphanedTaskIds.length > 0) && (
           <Button 
             variant="destructive" 
             size="lg" 
@@ -1973,7 +2044,7 @@ Generated by LyricVision on ${new Date().toLocaleDateString()}
             ) : (
               <StopCircle className="w-5 h-5 mr-2" />
             )}
-            Cancel All
+            Cancel All ({processingCount + orphanedTaskIds.length})
           </Button>
         )}
 
