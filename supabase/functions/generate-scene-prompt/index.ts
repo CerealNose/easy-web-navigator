@@ -29,9 +29,12 @@ Deno.serve(async (req) => {
     let storylineContext = "";
     let characterDescription = "";
     if (storyline) {
-      // Create a consistent, detailed character description
-      characterDescription = storyline.protagonist || "";
-      
+      // In silhouette mode, avoid any facial-detail character descriptors (they cause the model to render faces).
+      // Keep only a generic, consistency-safe silhouette description.
+      characterDescription = useSilhouetteMode
+        ? "A slender adult woman shown only as a silhouette (no facial features, no eyes, no skin details), consistent height and build"
+        : (storyline.protagonist || "");
+
       storylineContext = `
 STORYLINE CONTEXT:
 - Story: ${storyline.summary || ""}
@@ -40,9 +43,7 @@ STORYLINE CONTEXT:
 - Visual Motifs to include: ${(storyline.visualMotifs || []).join(", ")}
 ${narrativeBeat ? `- This scene's narrative beat: ${narrativeBeat}` : ""}
 
-CRITICAL - CHARACTER CONSISTENCY:
-The protagonist MUST be described EXACTLY the same way in EVERY scene: "${characterDescription}"
-Do NOT change any physical features. Use this EXACT description when the protagonist appears.
+${useSilhouetteMode ? "CRITICAL - SILHOUETTE MODE:\nNever describe faces, eyes, skin, or identifiable facial features. Characters must remain silhouettes." : `CRITICAL - CHARACTER CONSISTENCY:\nThe protagonist MUST be described EXACTLY the same way in EVERY scene: "${characterDescription}"\nDo NOT change any physical features. Use this EXACT description when the protagonist appears.`}
 `;
     }
 
@@ -50,9 +51,12 @@ Do NOT change any physical features. Use this EXACT description when the protago
     let characterStyleInstructions = "";
     if (useSilhouetteMode) {
       characterStyleInstructions = `
-CRITICAL STYLE RULE: All human figures must be shown as SILHOUETTES - backlit, shadowed, or in dramatic contrast. NEVER show detailed faces or facial features. Use body language, posture, and environment to convey emotion.
+CRITICAL STYLE RULE: All human figures must be shown as SILHOUETTES - backlit, shadowed, or in dramatic contrast.
+- NEVER describe or request faces, eyes, skin tone, facial expressions, or facial features
+- Use body language, posture, and environment to convey emotion
 - Use dramatic backlighting, rim lighting, or shadows to create silhouette effects
-- Characters should be dark outlines against dramatic lighting`;
+- Characters should be dark outlines against dramatic lighting
+- If a protagonist is mentioned, describe only: silhouette, height/build, clothing outline`; 
     } else if (characterDescription) {
       characterStyleInstructions = `
 CRITICAL - CHARACTER CONSISTENCY:
