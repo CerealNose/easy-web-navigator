@@ -11,7 +11,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { lyricLine, sceneIndex, totalScenes, styleHint, previousPrompt, storyline, narrativeBeat } = await req.json();
+    const { lyricLine, sceneIndex, totalScenes, styleHint, previousPrompt, storyline, narrativeBeat, useSilhouetteMode } = await req.json();
 
     if (!lyricLine || typeof lyricLine !== "string") {
       return new Response(
@@ -46,23 +46,36 @@ Do NOT change any physical features. Use this EXACT description when the protago
 `;
     }
 
+    // Build character style instructions based on mode
+    let characterStyleInstructions = "";
+    if (useSilhouetteMode) {
+      characterStyleInstructions = `
+CRITICAL STYLE RULE: All human figures must be shown as SILHOUETTES - backlit, shadowed, or in dramatic contrast. NEVER show detailed faces or facial features. Use body language, posture, and environment to convey emotion.
+- Use dramatic backlighting, rim lighting, or shadows to create silhouette effects
+- Characters should be dark outlines against dramatic lighting`;
+    } else if (characterDescription) {
+      characterStyleInstructions = `
+CRITICAL - CHARACTER CONSISTENCY:
+The protagonist MUST be described EXACTLY the same way in EVERY scene: "${characterDescription}"
+Do NOT change any physical features. Use this EXACT description when the protagonist appears.`;
+    }
+
     const systemPrompt = `You are a cinematic visual director creating image prompts for a cohesive music video with a clear narrative.
 ${storylineContext}
-For this lyric line, generate a UNIQUE, DETAILED cinematic image prompt that:
-1. ALWAYS shows characters as SILHOUETTES - dark outlines against dramatic lighting, no facial details
-2. Uses dramatic backlighting, rim lighting, or shadows to create silhouette effects
-3. Advances the storyline at this point in the narrative
-4. Incorporates the visual motifs and setting from the storyline
-5. Uses concrete visual elements (lighting, camera angle, color palette)
-6. Differs from previous scenes while maintaining story coherence
+${characterStyleInstructions}
 
-CRITICAL STYLE RULE: All human figures must be shown as silhouettes - backlit, shadowed, or in dramatic contrast. NEVER show detailed faces or facial features. Use body language, posture, and environment to convey emotion.
+For this lyric line, generate a UNIQUE, DETAILED cinematic image prompt that:
+1. ${useSilhouetteMode ? "Shows characters as SILHOUETTES with dramatic backlighting" : characterDescription ? `ALWAYS includes the EXACT protagonist description: "${characterDescription}"` : "Creates visually compelling characters"}
+2. Advances the storyline at this point in the narrative
+3. Incorporates the visual motifs and setting from the storyline
+4. Uses concrete visual elements (lighting, camera angle, color palette)
+5. Differs from previous scenes while maintaining story coherence
 
 Scene ${sceneIndex + 1} of ${totalScenes}.
 ${previousPrompt ? `IMPORTANT: Make this scene DIFFERENT visually from the previous one which was: "${previousPrompt.slice(0, 100)}..."` : ""}
 ${styleHint ? `Overall style direction: ${styleHint}` : ""}
 
-Return ONLY the image prompt text, nothing else. The prompt should be 1-2 sentences, specific and visual. Characters MUST be silhouettes.`;
+Return ONLY the image prompt text, nothing else. The prompt should be 1-2 sentences, specific and visual.${useSilhouetteMode ? " Characters MUST be silhouettes." : ""}`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
