@@ -163,7 +163,7 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
   const [avgClipDuration, setAvgClipDuration] = useState<number | null>(null);
   const [completedClipDurations, setCompletedClipDurations] = useState<number[]>([]);
 
-  // Extract the last frame from a video URL as base64
+  // Extract the last frame from a video URL as base64 (compressed and resized)
   const extractLastFrame = async (videoUrl: string): Promise<string | null> => {
     return new Promise((resolve) => {
       const video = document.createElement('video');
@@ -185,13 +185,38 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
       video.onseeked = () => {
         try {
           const canvas = document.createElement('canvas');
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
+          
+          // Resize to max 1280px on longest side to reduce file size
+          // This helps avoid Replicate's size limits while maintaining quality
+          const maxSize = 1280;
+          let width = video.videoWidth;
+          let height = video.videoHeight;
+          
+          if (width > height && width > maxSize) {
+            height = Math.round((height * maxSize) / width);
+            width = maxSize;
+          } else if (height > maxSize) {
+            width = Math.round((width * maxSize) / height);
+            height = maxSize;
+          }
+          
+          canvas.width = width;
+          canvas.height = height;
           const ctx = canvas.getContext('2d');
           
           if (ctx) {
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const base64 = canvas.toDataURL('image/jpeg', 0.9);
+            // Use better quality interpolation
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(video, 0, 0, width, height);
+            
+            // Compress to JPEG with 0.8 quality (good balance of size vs quality)
+            const base64 = canvas.toDataURL('image/jpeg', 0.8);
+            
+            // Log the size for debugging
+            const sizeKB = Math.round((base64.length * 3 / 4) / 1024);
+            console.log(`Extracted frame: ${width}x${height}, ~${sizeKB}KB`);
+            
             clearTimeout(timeoutId);
             video.remove();
             canvas.remove();
