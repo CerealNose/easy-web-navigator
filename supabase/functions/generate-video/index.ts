@@ -99,7 +99,7 @@ serve(async (req) => {
       duration: Math.min(Math.max(duration, 2), 12), // clamp between 2-12 seconds
       resolution: resolution, // "480p", "720p", or "1080p"
       aspect_ratio: aspectRatio, // "16:9", "9:16", or "1:1"
-      fps: fps, // default 24
+      fps: 24, // seedance-1-lite only supports 24 fps
     };
 
     // Add last_frame_image for scene continuity if provided
