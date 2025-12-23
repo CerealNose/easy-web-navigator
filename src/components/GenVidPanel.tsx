@@ -719,10 +719,53 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
     // Track the last frame from previous video for continuity
     let previousVideoLastFrame: string | null = null;
 
+    // Track the previous prompt for variation
+    let previousScenePrompt: string | null = null;
+
     for (let i = 0; i < sceneList.length; i++) {
       setCurrentSceneIndex(i);
       
       try {
+        // Step 1: Generate unique AI prompt for this scene
+        let scenePrompt = sceneList[i].prompt;
+        
+        // Get the lyric text for this scene to generate a unique prompt
+        const lyricText = uploadedSchedule[i]?.text || 
+                          sections[i]?.text?.split('\n')[0] || 
+                          sceneList[i].section;
+        
+        // Call AI to generate a unique prompt for this scene
+        toast.info(`Scene ${i + 1}: Generating unique visual prompt...`);
+        setScenes(prev => prev.map((s, idx) => 
+          idx === i ? { ...s, status: 'generating-image' } : s
+        ));
+        
+        try {
+          const promptRes = await supabase.functions.invoke("generate-scene-prompt", {
+            body: {
+              lyricLine: lyricText,
+              sceneIndex: i,
+              totalScenes: sceneList.length,
+              styleHint: moodPrompt || getStylePrefix(),
+              previousPrompt: previousScenePrompt
+            }
+          });
+          
+          if (promptRes.data?.prompt) {
+            scenePrompt = promptRes.data.prompt;
+            console.log(`Scene ${i + 1} AI prompt:`, scenePrompt);
+            
+            // Update the scene with the new prompt
+            setScenes(prev => prev.map((s, idx) => 
+              idx === i ? { ...s, prompt: scenePrompt } : s
+            ));
+          }
+        } catch (promptError) {
+          console.warn(`Scene ${i + 1}: Failed to generate AI prompt, using fallback`, promptError);
+        }
+        
+        previousScenePrompt = scenePrompt;
+        
         let imageUrl: string;
         
         // Priority for image source:
@@ -760,7 +803,7 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
 
           const imageRes = await supabase.functions.invoke("generate-image", {
             body: { 
-              prompt: sceneList[i].prompt,
+              prompt: scenePrompt, // Use the AI-generated prompt
               seed: sceneSeed,
               width: sizeConfig.width,
               height: sizeConfig.height,
@@ -795,7 +838,7 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
             "slow reveal with depth",
           ];
           const sceneMotion = motionVariations[i % motionVariations.length];
-          const videoPrompt = `${sceneList[i].prompt}, ${motionPrompt}, ${sceneMotion}`;
+          const videoPrompt = `${scenePrompt}, ${motionPrompt}, ${sceneMotion}`;
           
           // Use unique seed per scene for video (same base + offset for consistency with variation)
           const videoSeed = batchSeed ? batchSeed + i * 100 : undefined;
