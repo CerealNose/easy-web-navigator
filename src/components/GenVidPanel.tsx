@@ -6,11 +6,12 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Video, Play, Download, Settings, Loader2, ImageIcon, Film, Clock, Layers, Upload, FileJson, FileText, Images, X, AlertCircle, Music, Sparkles, RefreshCw, Archive, StopCircle } from "lucide-react";
+import { Video, Play, Download, Settings, Loader2, ImageIcon, Film, Clock, Layers, Upload, FileJson, FileText, Images, X, AlertCircle, Music, Sparkles, RefreshCw, Archive, StopCircle, Edit3 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { VideoPreviewPlayer } from "./VideoPreviewPlayer";
 import { SceneData } from "./remotion/MusicVideoComposition";
+import { SceneEditor, EditableScene } from "./SceneEditor";
 import JSZip from "jszip";
 
 interface Section {
@@ -176,6 +177,11 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
   const [isCancelling, setIsCancelling] = useState(false);
   const [orphanedTaskIds, setOrphanedTaskIds] = useState<string[]>([]);
   const [autoCancelOnLeave, setAutoCancelOnLeave] = useState(false);
+  
+  // Scene editor state
+  const [editableScenes, setEditableScenes] = useState<EditableScene[]>([]);
+  const [isPrepared, setIsPrepared] = useState(false);
+  const [isGeneratingPrompt, setIsGeneratingPrompt] = useState<number | null>(null);
 
   // Ref to signal cancellation to the generation loop
   const cancelGenerationRef = useRef(false);
@@ -816,8 +822,98 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
     return [];
   };
 
-  const generateAllScenes = async () => {
+  // Prepare scenes for editing before generation
+  const prepareScenes = async () => {
     const sceneList = calculateScenes();
+    if (sceneList.length === 0) return;
+
+    toast.info("Preparing scenes...");
+
+    // Convert to editable format with lyrics extraction
+    const prepared: EditableScene[] = sceneList.map((scene, i) => {
+      // Extract lyrics for this scene
+      let lyricText = "";
+      if (uploadedSchedule[i]?.text) {
+        lyricText = uploadedSchedule[i].text;
+      } else if (timestamps.length > 0) {
+        const sceneTimestamps = timestamps.filter(
+          ts => ts.start >= scene.start && ts.start < scene.end
+        );
+        if (sceneTimestamps.length > 0) {
+          lyricText = sceneTimestamps.map(ts => ts.text).join(' ');
+        }
+      }
+      if (!lyricText && sections[i]?.text) {
+        lyricText = sections[i].text;
+      }
+      if (!lyricText) {
+        lyricText = scene.section;
+      }
+
+      // Copy uploaded image if exists for this index
+      const existingImage = uploadedImages[i];
+
+      return {
+        section: scene.section,
+        prompt: scene.prompt,
+        lyrics: lyricText,
+        duration: scene.duration,
+        start: scene.start,
+        end: scene.end,
+        uploadedImage: existingImage ? { file: existingImage.file, preview: existingImage.preview } : undefined
+      };
+    });
+
+    setEditableScenes(prepared);
+    setIsPrepared(true);
+    toast.success(`${prepared.length} scenes ready for editing`);
+  };
+
+  // Generate AI prompt for a single scene
+  const generatePromptForScene = async (index: number, lyrics: string): Promise<string | null> => {
+    setIsGeneratingPrompt(index);
+    try {
+      const scene = editableScenes[index];
+      const sectionPromptData = sectionPrompts.find(sp => sp.section === scene.section);
+      const narrativeBeat = sectionPromptData?.narrativeBeat;
+
+      const promptRes = await supabase.functions.invoke("generate-scene-prompt", {
+        body: {
+          lyricLine: lyrics,
+          sceneIndex: index,
+          totalScenes: editableScenes.length,
+          styleHint: moodPrompt || getStylePrefix(),
+          previousPrompt: index > 0 ? editableScenes[index - 1]?.prompt : null,
+          storyline: storyline,
+          narrativeBeat: narrativeBeat,
+          useSilhouetteMode: useSilhouetteMode
+        }
+      });
+
+      if (promptRes.data?.prompt) {
+        return promptRes.data.prompt;
+      }
+      return null;
+    } catch (error) {
+      console.error("Failed to generate prompt:", error);
+      toast.error("Failed to generate prompt");
+      return null;
+    } finally {
+      setIsGeneratingPrompt(null);
+    }
+  };
+
+  const generateAllScenes = async () => {
+    // Use editable scenes if prepared, otherwise calculate fresh
+    const sceneList = isPrepared ? editableScenes.map(es => ({
+      section: es.section,
+      prompt: es.prompt,
+      duration: es.duration,
+      start: es.start,
+      end: es.end,
+      status: 'pending' as const
+    })) : calculateScenes();
+    
     if (sceneList.length === 0) return;
 
     // Check if we have enough images when using uploaded images
@@ -862,69 +958,76 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
       
       setCurrentSceneIndex(i);
       try {
-        // Step 1: Generate unique AI prompt for this scene
+        // Step 1: Get or generate prompt for this scene
         let scenePrompt = sceneList[i].prompt;
         
-        // Get the lyric text for this scene to generate a unique prompt
-        // Priority: uploaded schedule text > timestamp lyrics > section lyrics > section name
-        let lyricText = "";
-        if (uploadedSchedule[i]?.text) {
-          lyricText = uploadedSchedule[i].text;
-        } else if (timestamps.length > 0) {
-          // Find timestamps that fall within this scene's time range
-          const sceneTimestamps = timestamps.filter(
-            ts => ts.start >= sceneList[i].start && ts.start < sceneList[i].end
-          );
-          if (sceneTimestamps.length > 0) {
-            lyricText = sceneTimestamps.map(ts => ts.text).join(' ');
-          }
-        }
-        // Fallback to section text or section name
-        if (!lyricText && sections[i]?.text) {
-          lyricText = sections[i].text;
-        }
-        if (!lyricText) {
-          lyricText = sceneList[i].section;
-        }
-        
-        console.log(`Scene ${i + 1} lyrics:`, lyricText.slice(0, 100));
-        
-        // Call AI to generate a unique prompt for this scene
-        toast.info(`Scene ${i + 1}: Generating unique visual prompt...`);
-        setScenes(prev => prev.map((s, idx) => 
-          idx === i ? { ...s, status: 'generating-image' } : s
-        ));
-        
-        try {
-          // Find the narrative beat for this scene from sectionPrompts
-          const sectionName = sceneList[i].section;
-          const sectionPromptData = sectionPrompts.find(sp => sp.section === sectionName);
-          const narrativeBeat = sectionPromptData?.narrativeBeat;
-          
-          const promptRes = await supabase.functions.invoke("generate-scene-prompt", {
-            body: {
-              lyricLine: lyricText,
-              sceneIndex: i,
-              totalScenes: sceneList.length,
-              styleHint: moodPrompt || getStylePrefix(),
-              previousPrompt: previousScenePrompt,
-              storyline: storyline,
-              narrativeBeat: narrativeBeat,
-              useSilhouetteMode: useSilhouetteMode
+        // Skip prompt generation if scenes were prepared (user already edited prompts)
+        if (!isPrepared) {
+          // Get the lyric text for this scene to generate a unique prompt
+          // Priority: uploaded schedule text > timestamp lyrics > section lyrics > section name
+          let lyricText = "";
+          if (uploadedSchedule[i]?.text) {
+            lyricText = uploadedSchedule[i].text;
+          } else if (timestamps.length > 0) {
+            // Find timestamps that fall within this scene's time range
+            const sceneTimestamps = timestamps.filter(
+              ts => ts.start >= sceneList[i].start && ts.start < sceneList[i].end
+            );
+            if (sceneTimestamps.length > 0) {
+              lyricText = sceneTimestamps.map(ts => ts.text).join(' ');
             }
-          });
-          
-          if (promptRes.data?.prompt) {
-            scenePrompt = promptRes.data.prompt;
-            console.log(`Scene ${i + 1} AI prompt:`, scenePrompt);
-            
-            // Update the scene with the new prompt
-            setScenes(prev => prev.map((s, idx) => 
-              idx === i ? { ...s, prompt: scenePrompt } : s
-            ));
           }
-        } catch (promptError) {
-          console.warn(`Scene ${i + 1}: Failed to generate AI prompt, using fallback`, promptError);
+          // Fallback to section text or section name
+          if (!lyricText && sections[i]?.text) {
+            lyricText = sections[i].text;
+          }
+          if (!lyricText) {
+            lyricText = sceneList[i].section;
+          }
+          
+          console.log(`Scene ${i + 1} lyrics:`, lyricText.slice(0, 100));
+          
+          // Call AI to generate a unique prompt for this scene
+          toast.info(`Scene ${i + 1}: Generating unique visual prompt...`);
+          setScenes(prev => prev.map((s, idx) => 
+            idx === i ? { ...s, status: 'generating-image' } : s
+          ));
+          
+          try {
+            // Find the narrative beat for this scene from sectionPrompts
+            const sectionName = sceneList[i].section;
+            const sectionPromptData = sectionPrompts.find(sp => sp.section === sectionName);
+            const narrativeBeat = sectionPromptData?.narrativeBeat;
+            
+            const promptRes = await supabase.functions.invoke("generate-scene-prompt", {
+              body: {
+                lyricLine: lyricText,
+                sceneIndex: i,
+                totalScenes: sceneList.length,
+                styleHint: moodPrompt || getStylePrefix(),
+                previousPrompt: previousScenePrompt,
+                storyline: storyline,
+                narrativeBeat: narrativeBeat,
+                useSilhouetteMode: useSilhouetteMode
+              }
+            });
+            
+            if (promptRes.data?.prompt) {
+              scenePrompt = promptRes.data.prompt;
+              console.log(`Scene ${i + 1} AI prompt:`, scenePrompt);
+              
+              // Update the scene with the new prompt
+              setScenes(prev => prev.map((s, idx) => 
+                idx === i ? { ...s, prompt: scenePrompt } : s
+              ));
+            }
+          } catch (promptError) {
+            console.warn(`Scene ${i + 1}: Failed to generate AI prompt, using fallback`, promptError);
+          }
+        } else {
+          // Using prepared scenes - prompts already set by user
+          console.log(`Scene ${i + 1} using prepared prompt:`, scenePrompt.slice(0, 100));
+          toast.info(`Scene ${i + 1}: Using prepared prompt`);
         }
         
         previousScenePrompt = scenePrompt;
@@ -946,6 +1049,15 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
           ));
           
           toast.info(`Scene ${i + 1}: Using frame continuity from previous clip`);
+        } else if (isPrepared && editableScenes[i]?.uploadedImage) {
+          // Use image from editable scene
+          const file = editableScenes[i].uploadedImage!.file;
+          const base64 = await fileToBase64(file);
+          imageUrl = base64;
+          
+          setScenes(prev => prev.map((s, idx) => 
+            idx === i ? { ...s, imageUrl: editableScenes[i].uploadedImage!.preview, uploadedImage: base64, status: autoGenerateVideo ? 'generating-video' : 'complete' } : s
+          ));
         } else if (uploadedImages[i]) {
           // Convert uploaded image to base64 for the video generation API
           const file = uploadedImages[i].file;
@@ -2106,8 +2218,44 @@ Generated by LyricVision on ${new Date().toLocaleDateString()}
         </Card>
       )}
 
-      {/* Generate Button */}
-      <div className="flex gap-3">
+      {/* Scene Editor - Show when prepared */}
+      {isPrepared && !isGenerating && (
+        <SceneEditor
+          scenes={editableScenes}
+          onScenesChange={setEditableScenes}
+          onGeneratePrompt={generatePromptForScene}
+          isGeneratingPrompt={isGeneratingPrompt}
+        />
+      )}
+
+      {/* Generate Buttons */}
+      <div className="flex gap-3 flex-wrap">
+        {/* Prepare Scenes Button - Show only when not prepared and not generating */}
+        {!isPrepared && !isGenerating && (
+          <Button
+            onClick={prepareScenes}
+            disabled={!hasSourceData}
+            variant="outline"
+            size="lg"
+            className="flex-1"
+          >
+            <Edit3 className="w-5 h-5 mr-2" />
+            Prepare &amp; Edit Scenes ({previewScenes.length})
+          </Button>
+        )}
+
+        {/* Back button when prepared */}
+        {isPrepared && !isGenerating && (
+          <Button
+            onClick={() => setIsPrepared(false)}
+            variant="ghost"
+            size="lg"
+          >
+            ← Back
+          </Button>
+        )}
+
+        {/* Generate Button */}
         <Button
           onClick={generateAllScenes}
           disabled={isGenerating || !hasSourceData}
@@ -2120,10 +2268,15 @@ Generated by LyricVision on ${new Date().toLocaleDateString()}
               <Loader2 className="w-5 h-5 animate-spin" />
               Generating Scene {currentSceneIndex + 1}/{scenes.length}...
             </>
+          ) : isPrepared ? (
+            <>
+              <Video className="w-5 h-5" />
+              Generate Videos ({editableScenes.length})
+            </>
           ) : (
             <>
               <Video className="w-5 h-5" />
-              Generate All Scenes ({previewScenes.length})
+              Quick Generate ({previewScenes.length})
             </>
           )}
         </Button>
