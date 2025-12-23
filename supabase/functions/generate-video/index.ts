@@ -6,6 +6,43 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Helper function to sleep
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Retry wrapper with exponential backoff for rate limits
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  maxRetries = 3,
+  initialDelay = 10000
+): Promise<T> {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error as Error;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // Check if it's a rate limit error (429)
+      if (errorMessage.includes('429') || errorMessage.includes('Too Many Requests')) {
+        // Extract retry_after if available
+        const retryAfterMatch = errorMessage.match(/retry_after["\s:]+(\d+)/);
+        const retryAfter = retryAfterMatch ? parseInt(retryAfterMatch[1]) * 1000 : initialDelay;
+        const delay = Math.max(retryAfter, initialDelay * Math.pow(2, attempt));
+        
+        if (attempt < maxRetries) {
+          console.log(`Rate limited. Waiting ${delay}ms before retry ${attempt + 1}/${maxRetries}`);
+          await sleep(delay);
+          continue;
+        }
+      }
+      throw error;
+    }
+  }
+  throw lastError;
+}
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
@@ -116,9 +153,12 @@ serve(async (req) => {
 
     console.log("Replicate input:", JSON.stringify(input, null, 2));
 
-    const prediction = await replicate.predictions.create({
-      model: "bytedance/seedance-1-lite",
-      input,
+    // Create prediction with retry logic for rate limits
+    const prediction = await retryWithBackoff(async () => {
+      return await replicate.predictions.create({
+        model: "bytedance/seedance-1-lite",
+        input,
+      });
     });
 
     console.log("Prediction created:", prediction.id, "Status:", prediction.status);
