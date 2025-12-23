@@ -41,6 +41,7 @@ Deno.serve(async (req) => {
       console.log("Task status response:", JSON.stringify(queryData));
       
       const status = queryData.status;
+      const statusMsg = queryData.base_resp?.status_msg || "";
       
       if (status === "Success" && queryData.file_id) {
         // Get the download URL for the video
@@ -69,12 +70,19 @@ Deno.serve(async (req) => {
           throw new Error("Failed to get download URL");
         }
       } else if (status === "Fail") {
+        // Provide more context about common failure reasons
+        let errorMessage = statusMsg || "Video generation failed";
+        if (statusMsg === "unexpected error") {
+          errorMessage = "Video generation failed - the image may be inaccessible or invalid. Ensure the image URL is publicly accessible.";
+        }
+        console.error("Video generation failed:", errorMessage);
+        
         return new Response(
           JSON.stringify({ 
-            error: queryData.base_resp?.status_msg || "Video generation failed", 
+            error: errorMessage, 
             status: "failed" 
           }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       } else {
         // Still processing (Preparing, Queueing, Processing)
