@@ -449,12 +449,40 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
 
   // Get section-specific prompt if available, otherwise fall back to global style
   const getSectionPrompt = (sectionName: string): string | null => {
-    // Normalize section name for comparison (case-insensitive)
-    const normalized = sectionName.toLowerCase().trim();
-    const match = sectionPrompts.find(sp => 
-      sp.section.toLowerCase().trim() === normalized
-    );
-    return match?.prompt || null;
+    const normalize = (s: string) =>
+      s
+        .toLowerCase()
+        .trim()
+        .replace(/\s+/g, " ")
+        .replace(/[^a-z0-9 ]/g, "");
+
+    const stripNumbering = (s: string) =>
+      normalize(s)
+        // "verse 1" -> "verse", "chorus 2" -> "chorus"
+        .replace(/\b(verse|chorus|bridge|intro|outro|hook|prechorus|pre chorus)\s*\d+\b/g, "$1")
+        // remove any remaining standalone numbers
+        .replace(/\b\d+\b/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    const target = normalize(sectionName);
+    const targetLoose = stripNumbering(sectionName);
+
+    // 1) Exact match (preferred)
+    const exact = sectionPrompts.find((sp) => normalize(sp.section) === target);
+    if (exact?.prompt) return exact.prompt;
+
+    // 2) Loose match ignoring numbering/punctuation (common AI mismatch)
+    const loose = sectionPrompts.find((sp) => stripNumbering(sp.section) === targetLoose);
+    if (loose?.prompt) return loose.prompt;
+
+    // 3) Prefix/contains match (handles "Verse" vs "Verse 1" and similar)
+    const fuzzy = sectionPrompts.find((sp) => {
+      const a = normalize(sp.section);
+      const b = target;
+      return a.startsWith(b) || b.startsWith(a) || a.includes(b) || b.includes(a);
+    });
+    return fuzzy?.prompt || null;
   };
 
   // Calculate scenes - group schedule items by their parent sections
