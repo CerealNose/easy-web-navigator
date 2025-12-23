@@ -62,8 +62,28 @@ serve(async (req) => {
     const replicate = new Replicate({ auth: REPLICATE_API_KEY });
     const body = await req.json();
 
+    // Handle cancel request
+    if (body.action === "cancel" && body.taskId) {
+      console.log("Cancelling prediction:", body.taskId);
+      try {
+        await replicate.predictions.cancel(body.taskId);
+        console.log("Prediction cancelled successfully:", body.taskId);
+        return new Response(
+          JSON.stringify({ status: "cancelled", taskId: body.taskId }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      } catch (cancelError) {
+        console.error("Error cancelling prediction:", cancelError);
+        // Even if cancel fails, return success - the job might have already completed
+        return new Response(
+          JSON.stringify({ status: "cancelled", taskId: body.taskId, note: "May have already completed" }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
     // If it's a status check request (polling for prediction result)
-    if (body.taskId) {
+    if (body.taskId && !body.action) {
       console.log("Checking status for prediction:", body.taskId);
       
       try {
