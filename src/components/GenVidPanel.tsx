@@ -224,36 +224,68 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
     savePendingJobs(allPending);
   }, [scenes, orphanedTaskIds, savePendingJobs]);
 
-  // Warn before leaving page if jobs are pending, and optionally cancel them
+  // Warn before leaving page if jobs are pending, and optionally auto-cancel them (best-effort)
   useEffect(() => {
     const pendingTaskIds = scenes
-      .filter(s => s.taskId && (s.status === 'processing' || s.status === 'generating-video'))
-      .map(s => s.taskId!);
+      .filter((s) => s.taskId && (s.status === "processing" || s.status === "generating-video"))
+      .map((s) => s.taskId!);
     const allTaskIds = [...new Set([...pendingTaskIds, ...orphanedTaskIds])];
     const pendingCount = allTaskIds.length;
-    
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (pendingCount > 0) {
-        // If auto-cancel is enabled, send cancel requests via sendBeacon (fire-and-forget)
-        if (autoCancelOnLeave) {
-          allTaskIds.forEach(taskId => {
-            const url = `https://qyritntnyigmustviepw.supabase.co/functions/v1/generate-video`;
-            const data = JSON.stringify({ action: "cancel", taskId });
-            navigator.sendBeacon(url, data);
-          });
-          // Clear localStorage
+
+    const cancelPendingJobsBestEffort = async () => {
+      if (pendingCount === 0) return;
+
+      // Fire-and-forget; on some browsers this may not fully complete.
+      try {
+        await Promise.allSettled(
+          allTaskIds.map((taskId) =>
+            supabase.functions.invoke("generate-video", {
+              body: { action: "cancel", taskId },
+            })
+          )
+        );
+      } catch {
+        // ignore
+      } finally {
+        try {
           localStorage.removeItem(PENDING_JOBS_KEY);
-        } else {
-          e.preventDefault();
-          e.returnValue = 'You have pending video generation jobs. They will continue to use credits if you leave. Are you sure?';
-          return e.returnValue;
+        } catch {
+          // ignore
         }
       }
     };
 
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (pendingCount > 0 && !autoCancelOnLeave) {
+        e.preventDefault();
+        e.returnValue =
+          "You have pending video generation jobs. They will continue to use credits if you leave. Are you sure?";
+        return e.returnValue;
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (autoCancelOnLeave && document.visibilityState === "hidden") {
+        void cancelPendingJobsBestEffort();
+      }
+    };
+
+    const handlePageHide = () => {
+      if (autoCancelOnLeave) {
+        void cancelPendingJobsBestEffort();
+      }
+    };
+
     if (pendingCount > 0) {
-      window.addEventListener('beforeunload', handleBeforeUnload);
-      return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.addEventListener("beforeunload", handleBeforeUnload);
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+      window.addEventListener("pagehide", handlePageHide);
+
+      return () => {
+        window.removeEventListener("beforeunload", handleBeforeUnload);
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+        window.removeEventListener("pagehide", handlePageHide);
+      };
     }
   }, [scenes, orphanedTaskIds, autoCancelOnLeave]);
 
