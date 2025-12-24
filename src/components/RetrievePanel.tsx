@@ -5,7 +5,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Download, Loader2, RefreshCw, Video, CheckSquare, Square, Calendar, Clock, Search, Filter, X, Image } from "lucide-react";
+import { Download, Loader2, RefreshCw, Video, CheckSquare, Square, Calendar, Clock, Search, Filter, X, Image, AlertTriangle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import JSZip from "jszip";
@@ -433,7 +433,8 @@ export function RetrievePanel() {
                 const outputUrl = getOutputUrl(prediction);
                 const isVideo = isVideoPrediction(prediction);
                 const isSelected = selectedIds.has(prediction.id);
-                const canSelect = prediction.status === "succeeded";
+                const isExpired = prediction.data_removed || !prediction.output;
+                const canSelect = prediction.status === "succeeded" && !isExpired;
 
                 return (
                   <div
@@ -516,7 +517,7 @@ export function RetrievePanel() {
 
                     {/* Info */}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <span
                           className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                             prediction.status === "succeeded"
@@ -528,6 +529,12 @@ export function RetrievePanel() {
                         >
                           {prediction.status}
                         </span>
+                        {isExpired && prediction.status === "succeeded" && (
+                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-orange-500/20 text-orange-400 flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3" />
+                            EXPIRED
+                          </span>
+                        )}
                         <span className="text-xs text-muted-foreground font-mono">
                           {prediction.id.slice(0, 12)}...
                         </span>
