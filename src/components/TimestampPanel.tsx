@@ -134,15 +134,21 @@ export function TimestampPanel({ sections = [], onTimestampsGenerated }: Timesta
     toast.success("Timestamps copied to clipboard");
   };
 
+  // Format seconds to SRT timecode: HH:MM:SS,mmm (YouTube requirement)
+  const formatSRTTime = (seconds: number): string => {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    const ms = Math.round((seconds % 1) * 1000);
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
+  };
+
   const downloadSRT = () => {
     const srtContent = timestamps.map((ts, i) => {
-      const startTime = ts.time.replace(/:/g, ',').slice(0, -3) + ',' + ts.time.slice(-2) + '0';
-      const nextTs = timestamps[i + 1];
-      const endTime = nextTs 
-        ? nextTs.time.replace(/:/g, ',').slice(0, -3) + ',' + nextTs.time.slice(-2) + '0'
-        : startTime.replace(/,(\d{2})0$/, (_, s) => `,${String(Number(s) + 2).padStart(2, '0')}0`);
+      const startTime = formatSRTTime(ts.start);
+      const endTime = formatSRTTime(ts.end);
       
-      return `${i + 1}\n${startTime.replace(',', ':')} --> ${endTime.replace(',', ':')}\n${ts.text}\n`;
+      return `${i + 1}\n${startTime} --> ${endTime}\n${ts.text}\n`;
     }).join("\n");
 
     const blob = new Blob([srtContent], { type: "text/srt" });
