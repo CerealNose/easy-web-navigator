@@ -25,6 +25,8 @@ Deno.serve(async (req) => {
       throw new Error("LOVABLE_API_KEY not configured");
     }
 
+    console.log("Analyzing lyrics, length:", lyrics.length);
+
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -36,25 +38,23 @@ Deno.serve(async (req) => {
         messages: [
           {
             role: "system",
-            content: `You are a lyrical analysis AI specializing in music video visualization and storytelling. Analyze the lyrics to:
-1. Detect emotions, moods, and visual themes
-2. Create a cohesive STORYLINE/NARRATIVE ARC that the music video will tell
-3. Generate unique visual prompts for each section that follow this storyline
+            content: `You are a lyrical analysis AI specializing in music video visualization and storytelling. Your task is to analyze lyrics deeply and create THREE DISTINCT storyline interpretations:
 
-The storyline should describe:
-- The protagonist/subject and their journey
-- The emotional arc (beginning state → conflict/tension → resolution)
-- Key visual motifs that recur throughout
-- The setting and world of the video
+1. **LITERAL**: The surface-level story - what the lyrics literally describe
+2. **METAPHORICAL**: The deeper symbolic meaning - what the lyrics are really about underneath
+3. **ABSTRACT/EMOTIONAL**: A purely artistic, mood-driven interpretation that captures the emotional essence
 
-For EACH SECTION, generate a prompt that:
-- Advances the storyline at that point in the narrative
-- Maintains visual and thematic coherence with other sections
-- Uses different settings, lighting, and compositions for variety`
+For each storyline, consider:
+- Song lyrics often have hidden meanings, metaphors, and subtext
+- A song about "rain" might really be about depression
+- A song about "fire" might represent passion or destruction
+- Love songs might be about addiction, loss, or self-discovery
+
+Each storyline should be complete and distinct, offering a genuinely different creative direction for a music video.`
           },
           {
             role: "user",
-            content: `Analyze these lyrics and create a storyline with unique visual prompts for each section:\n\n${lyrics}`
+            content: `Analyze these lyrics deeply. Look for both the obvious meaning AND the underlying themes, metaphors, and emotions. Create 3 distinct storyline interpretations:\n\n${lyrics}`
           }
         ],
         tools: [
@@ -62,13 +62,13 @@ For EACH SECTION, generate a prompt that:
             type: "function",
             function: {
               name: "analyze_lyrics_result",
-              description: "Return the analysis of the lyrics with storyline and per-section visual prompts",
+              description: "Return 3 distinct storyline interpretations of the lyrics",
               parameters: {
                 type: "object",
                 properties: {
                   themes: {
                     type: "array",
-                    description: "Detected emotional themes",
+                    description: "Detected emotional themes across all interpretations",
                     items: {
                       type: "object",
                       properties: {
@@ -82,43 +82,63 @@ For EACH SECTION, generate a prompt that:
                   emotions: {
                     type: "array",
                     items: { type: "string" },
-                    description: "Primary emotions detected"
+                    description: "Primary emotions detected across all interpretations"
                   },
-                  storyline: {
-                    type: "object",
-                    description: "The narrative arc and storyline for the music video",
-                    properties: {
-                      summary: {
-                        type: "string",
-                        description: "2-3 sentence summary of the video's story/concept"
+                  storylines: {
+                    type: "array",
+                    description: "THREE distinct storyline interpretations",
+                    items: {
+                      type: "object",
+                      properties: {
+                        type: {
+                          type: "string",
+                          enum: ["literal", "metaphorical", "abstract"],
+                          description: "The type of interpretation"
+                        },
+                        title: {
+                          type: "string",
+                          description: "A catchy title for this interpretation (e.g., 'The Breakup', 'Battle with Addiction', 'Descent into Chaos')"
+                        },
+                        summary: {
+                          type: "string",
+                          description: "2-3 sentence summary of this video concept"
+                        },
+                        protagonist: {
+                          type: "string",
+                          description: "EXTREMELY DETAILED physical description of the main character. Include: exact age, gender, ethnicity, skin tone, hair color/style/length, eye color, facial features, body type, height, distinctive marks, clothing style. Be VERY specific."
+                        },
+                        setting: {
+                          type: "string",
+                          description: "The world/environment where this story takes place"
+                        },
+                        emotionalArc: {
+                          type: "string",
+                          description: "The emotional journey (e.g., 'loneliness → connection → hope')"
+                        },
+                        visualMotifs: {
+                          type: "array",
+                          items: { type: "string" },
+                          description: "Recurring visual symbols/elements for this interpretation"
+                        },
+                        colorPalette: {
+                          type: "string",
+                          description: "The dominant color palette (e.g., 'cool blues and grays', 'warm amber and gold')"
+                        },
+                        cinematicStyle: {
+                          type: "string",
+                          description: "The visual style (e.g., 'noir with harsh shadows', 'dreamy soft focus', 'gritty handheld')"
+                        }
                       },
-                      protagonist: {
-                        type: "string",
-                        description: "EXTREMELY DETAILED physical description of the main character for visual consistency. MUST include: exact age, gender, ethnicity, skin tone, hair color/style/length, eye color, facial features, body type, height, distinctive marks. Be VERY specific so the character looks identical in every scene. Example: 'A 25-year-old East Asian woman with long straight black hair reaching her waist, warm brown almond-shaped eyes, delicate facial features with high cheekbones, fair porcelain skin, slender build, approximately 5'6 tall, wearing minimal makeup'"
-                      },
-                      setting: {
-                        type: "string",
-                        description: "The world/environment where the story takes place"
-                      },
-                      emotionalArc: {
-                        type: "string",
-                        description: "The emotional journey from start to finish (e.g., 'loneliness → connection → hope')"
-                      },
-                      visualMotifs: {
-                        type: "array",
-                        items: { type: "string" },
-                        description: "Recurring visual symbols/elements (e.g., 'rain', 'neon lights', 'empty streets')"
-                      }
-                    },
-                    required: ["summary", "protagonist", "setting", "emotionalArc", "visualMotifs"]
+                      required: ["type", "title", "summary", "protagonist", "setting", "emotionalArc", "visualMotifs", "colorPalette", "cinematicStyle"]
+                    }
                   },
                   moodPrompt: {
                     type: "string",
-                    description: "Overall cinematic style and mood that ties all scenes together"
+                    description: "Overall cinematic style keywords that apply to all interpretations"
                   },
                   sectionPrompts: {
                     type: "array",
-                    description: "Unique visual prompts for each section that advance the storyline",
+                    description: "Visual prompts for each section (using the literal interpretation as default)",
                     items: {
                       type: "object",
                       properties: {
@@ -128,43 +148,58 @@ For EACH SECTION, generate a prompt that:
                         },
                         narrativeBeat: {
                           type: "string",
-                          description: "What happens in the story at this point (1 sentence)"
+                          description: "What happens in the story at this point"
                         },
                         prompt: { 
                           type: "string", 
-                          description: "Detailed cinematic image prompt for this story moment - include setting, lighting, mood, camera angle, symbolic elements" 
+                          description: "Detailed cinematic image prompt" 
                         }
                       },
                       required: ["section", "narrativeBeat", "prompt"]
                     }
                   }
                 },
-                required: ["themes", "emotions", "storyline", "moodPrompt", "sectionPrompts"]
+                required: ["themes", "emotions", "storylines", "moodPrompt", "sectionPrompts"]
               }
             }
           }
         ],
         tool_choice: { type: "function", function: { name: "analyze_lyrics_result" } },
-        temperature: 0.7,
+        temperature: 0.8,
       }),
     });
 
     if (!response.ok) {
       const error = await response.text();
-      console.error("AI Gateway error:", error);
+      console.error("AI Gateway error:", response.status, error);
+      
+      if (response.status === 429) {
+        return new Response(
+          JSON.stringify({ error: "Rate limit exceeded. Please try again in a moment." }),
+          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      if (response.status === 402) {
+        return new Response(
+          JSON.stringify({ error: "AI credits exhausted. Please add credits to continue." }),
+          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      
       throw new Error(`AI Gateway error: ${response.status}`);
     }
 
     const data = await response.json();
-    console.log("AI response:", JSON.stringify(data, null, 2));
+    console.log("AI response received");
     
     const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
     if (!toolCall) {
+      console.error("No tool call in response:", JSON.stringify(data, null, 2));
       throw new Error("No tool call in response");
     }
 
     const analysis = JSON.parse(toolCall.function.arguments);
-    console.log("Parsed analysis:", JSON.stringify(analysis, null, 2));
+    console.log("Generated", analysis.storylines?.length || 0, "storylines");
 
     return new Response(
       JSON.stringify(analysis),

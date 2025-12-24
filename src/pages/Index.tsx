@@ -25,11 +25,15 @@ interface SectionPrompt {
 }
 
 interface Storyline {
+  type: "literal" | "metaphorical" | "abstract";
+  title: string;
   summary: string;
   protagonist: string;
   setting: string;
   emotionalArc: string;
   visualMotifs: string[];
+  colorPalette?: string;
+  cinematicStyle?: string;
 }
 
 interface Timestamp {
