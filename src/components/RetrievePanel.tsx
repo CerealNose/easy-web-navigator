@@ -51,6 +51,8 @@ export function RetrievePanel() {
       const data = response.data;
       const newPredictions = data.predictions || [];
       
+      console.log("Raw predictions:", newPredictions.slice(0, 3));
+      
       // Sort by newest first
       const sortedPredictions = newPredictions.sort(
         (a: ReplicatePrediction, b: ReplicatePrediction) => 
@@ -372,7 +374,7 @@ export function RetrievePanel() {
                 const outputUrl = getOutputUrl(prediction);
                 const isVideo = isVideoPrediction(prediction);
                 const isSelected = selectedIds.has(prediction.id);
-                const canSelect = prediction.status === "succeeded" && outputUrl;
+                const canSelect = prediction.status === "succeeded";
 
                 return (
                   <div
@@ -400,10 +402,14 @@ export function RetrievePanel() {
                             src={outputUrl}
                             className="w-full h-full object-cover"
                             muted
+                            preload="metadata"
                             onMouseEnter={(e) => e.currentTarget.play()}
                             onMouseLeave={(e) => {
                               e.currentTarget.pause();
                               e.currentTarget.currentTime = 0;
+                            }}
+                            onError={(e) => {
+                              console.log("Video load error:", outputUrl);
                             }}
                           />
                         ) : (
@@ -411,6 +417,10 @@ export function RetrievePanel() {
                             src={outputUrl}
                             alt="Generated"
                             className="w-full h-full object-cover"
+                            loading="lazy"
+                            onError={(e) => {
+                              console.log("Image load error:", outputUrl);
+                            }}
                           />
                         )
                       ) : (
