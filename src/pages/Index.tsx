@@ -4,6 +4,7 @@ import { LyricsAnalyzer } from "@/components/LyricsAnalyzer";
 import { MoodImagePanel } from "@/components/MoodImagePanel";
 import { TimestampPanel } from "@/components/TimestampPanel";
 import { GenVidPanel } from "@/components/GenVidPanel";
+import { RetrievePanel } from "@/components/RetrievePanel";
 import { Film, Github, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -134,6 +135,9 @@ const Index = () => {
             )}
             {activeTab === "genvid" && (
               <GenVidPanel sections={sections} timestamps={timestamps} moodPrompt={moodPrompt} sectionPrompts={sectionPrompts} storyline={storyline} />
+            )}
+            {activeTab === "retrieve" && (
+              <RetrievePanel />
             )}
           </section>
         </div>
