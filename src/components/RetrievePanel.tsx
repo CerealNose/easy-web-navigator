@@ -66,7 +66,11 @@ export function RetrievePanel() {
       );
 
       if (loadMore) {
-        setPredictions(prev => [...prev, ...sortedPredictions]);
+        setPredictions(prev => {
+          const existingIds = new Set(prev.map(p => p.id));
+          const uniqueNew = sortedPredictions.filter((p: ReplicatePrediction) => !existingIds.has(p.id));
+          return [...prev, ...uniqueNew];
+        });
       } else {
         setPredictions(sortedPredictions);
       }
@@ -391,10 +395,11 @@ export function RetrievePanel() {
                 return (
                   <div
                     key={prediction.id}
-                    className={`flex items-start gap-4 p-4 rounded-lg border transition-all ${
+                    onClick={() => canSelect && toggleSelection(prediction.id)}
+                    className={`flex items-start gap-4 p-4 rounded-lg border-2 transition-all cursor-pointer ${
                       isSelected
-                        ? "border-primary bg-primary/10"
-                        : "border-border/50 bg-muted/20 hover:bg-muted/40"
+                        ? "border-primary bg-primary/20 ring-2 ring-primary/30"
+                        : "border-border/50 bg-muted/20 hover:bg-muted/40 hover:border-primary/30"
                     }`}
                   >
                     {/* Checkbox */}
