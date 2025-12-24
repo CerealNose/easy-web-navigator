@@ -23,6 +23,12 @@ interface ReplicatePrediction {
   model: string;
   version: string;
   error?: string;
+  urls?: {
+    stream?: string;
+    get?: string;
+    cancel?: string;
+  };
+  data_removed?: boolean;
 }
 
 export function RetrievePanel() {
@@ -110,10 +116,16 @@ export function RetrievePanel() {
   };
 
   const getOutputUrl = (prediction: ReplicatePrediction): string | null => {
-    if (!prediction.output) return null;
-    if (typeof prediction.output === "string") return prediction.output;
-    if (Array.isArray(prediction.output) && prediction.output.length > 0) {
-      return prediction.output[0];
+    // First check direct output
+    if (prediction.output) {
+      if (typeof prediction.output === "string") return prediction.output;
+      if (Array.isArray(prediction.output) && prediction.output.length > 0) {
+        return prediction.output[0];
+      }
+    }
+    // Fallback to stream URL for previews (useful when data_removed is true)
+    if (prediction.urls?.stream) {
+      return prediction.urls.stream;
     }
     return null;
   };
