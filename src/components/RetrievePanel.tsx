@@ -412,23 +412,38 @@ export function RetrievePanel() {
                     </div>
 
                     {/* Preview */}
-                    <div className="w-32 h-20 rounded-md overflow-hidden bg-muted flex-shrink-0">
+                    <div className="w-32 h-20 rounded-md overflow-hidden bg-muted flex-shrink-0 relative">
                       {outputUrl ? (
                         isVideo ? (
-                          <video
-                            src={outputUrl}
-                            className="w-full h-full object-cover"
-                            muted
-                            preload="metadata"
-                            onMouseEnter={(e) => e.currentTarget.play()}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.pause();
-                              e.currentTarget.currentTime = 0;
-                            }}
-                            onError={(e) => {
-                              console.log("Video load error:", outputUrl);
-                            }}
-                          />
+                          <>
+                            <video
+                              src={outputUrl}
+                              className="w-full h-full object-cover"
+                              muted
+                              playsInline
+                              preload="metadata"
+                              onMouseEnter={(e) => e.currentTarget.play().catch(() => {})}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.pause();
+                                e.currentTarget.currentTime = 0;
+                              }}
+                              onError={(e) => {
+                                // Hide video element on error, show fallback
+                                e.currentTarget.style.display = 'none';
+                                const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                                if (fallback) fallback.style.display = 'flex';
+                              }}
+                            />
+                            {/* Fallback shown on video error */}
+                            <div className="absolute inset-0 hidden items-center justify-center bg-muted">
+                              <Video className="w-8 h-8 text-muted-foreground" />
+                            </div>
+                            {/* Video indicator overlay */}
+                            <div className="absolute bottom-1 right-1 bg-black/60 rounded px-1.5 py-0.5 flex items-center gap-1">
+                              <Video className="w-3 h-3 text-white" />
+                              <span className="text-[10px] text-white font-medium">VIDEO</span>
+                            </div>
+                          </>
                         ) : (
                           <img
                             src={outputUrl}
@@ -436,7 +451,12 @@ export function RetrievePanel() {
                             className="w-full h-full object-cover"
                             loading="lazy"
                             onError={(e) => {
-                              console.log("Image load error:", outputUrl);
+                              // Replace with fallback on error
+                              e.currentTarget.style.display = 'none';
+                              const parent = e.currentTarget.parentElement;
+                              if (parent) {
+                                parent.innerHTML = '<div class="w-full h-full flex items-center justify-center"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-muted-foreground"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg></div>';
+                              }
                             }}
                           />
                         )
