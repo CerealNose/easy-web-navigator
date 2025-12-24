@@ -5,7 +5,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Download, Loader2, RefreshCw, Video, CheckSquare, Square, Calendar, Clock, Search, Filter, X } from "lucide-react";
+import { Download, Loader2, RefreshCw, Video, CheckSquare, Square, Calendar, Clock, Search, Filter, X, Image } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import JSZip from "jszip";
@@ -32,6 +32,7 @@ export function RetrievePanel() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "succeeded" | "failed">("succeeded");
+  const [typeFilter, setTypeFilter] = useState<"all" | "video" | "image">("all");
   const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
 
@@ -50,28 +51,25 @@ export function RetrievePanel() {
       const data = response.data;
       const newPredictions = data.predictions || [];
       
-      // Filter to only video predictions (seedance-1-lite) and sort by newest first
-      const videoPredictions = newPredictions
-        .filter((p: ReplicatePrediction) => 
-          p.model?.includes("seedance") || p.model?.includes("bytedance")
-        )
-        .sort((a: ReplicatePrediction, b: ReplicatePrediction) => 
+      // Sort by newest first
+      const sortedPredictions = newPredictions.sort(
+        (a: ReplicatePrediction, b: ReplicatePrediction) => 
           new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        );
+      );
 
       if (loadMore) {
-        setPredictions(prev => [...prev, ...videoPredictions]);
+        setPredictions(prev => [...prev, ...sortedPredictions]);
       } else {
-        setPredictions(videoPredictions);
+        setPredictions(sortedPredictions);
       }
       
       setCursor(data.next || null);
       setHasMore(!!data.next);
       
-      if (videoPredictions.length === 0 && !loadMore) {
-        toast.info("No video predictions found in your Replicate account");
+      if (sortedPredictions.length === 0 && !loadMore) {
+        toast.info("No predictions found in your Replicate account");
       } else if (!loadMore) {
-        toast.success(`Found ${videoPredictions.length} video predictions`);
+        toast.success(`Found ${sortedPredictions.length} predictions`);
       }
     } catch (err) {
       console.error("Error fetching predictions:", err);
@@ -100,7 +98,7 @@ export function RetrievePanel() {
   const selectAll = () => {
     const filtered = getFilteredPredictions();
     const succeededIds = filtered
-      .filter(p => p.status === "succeeded" && getVideoUrl(p))
+      .filter(p => p.status === "succeeded" && getOutputUrl(p))
       .map(p => p.id);
     setSelectedIds(new Set(succeededIds));
   };
@@ -109,7 +107,7 @@ export function RetrievePanel() {
     setSelectedIds(new Set());
   };
 
-  const getVideoUrl = (prediction: ReplicatePrediction): string | null => {
+  const getOutputUrl = (prediction: ReplicatePrediction): string | null => {
     if (!prediction.output) return null;
     if (typeof prediction.output === "string") return prediction.output;
     if (Array.isArray(prediction.output) && prediction.output.length > 0) {
@@ -118,34 +116,54 @@ export function RetrievePanel() {
     return null;
   };
 
-  const downloadSingleVideo = async (prediction: ReplicatePrediction) => {
-    const videoUrl = getVideoUrl(prediction);
-    if (!videoUrl) {
-      toast.error("No video URL available");
+  const isVideoPrediction = (prediction: ReplicatePrediction): boolean => {
+    return prediction.model?.includes("seedance") || 
+           prediction.model?.includes("bytedance") ||
+           prediction.model?.includes("video") ||
+           prediction.model?.includes("wan") ||
+           prediction.model?.includes("kling");
+  };
+
+  const isImagePrediction = (prediction: ReplicatePrediction): boolean => {
+    return prediction.model?.includes("flux") || 
+           prediction.model?.includes("stable-diffusion") ||
+           prediction.model?.includes("sdxl") ||
+           prediction.model?.includes("midjourney") ||
+           prediction.model?.includes("dall") ||
+           prediction.model?.includes("image") ||
+           !isVideoPrediction(prediction);
+  };
+
+  const downloadSingle = async (prediction: ReplicatePrediction) => {
+    const outputUrl = getOutputUrl(prediction);
+    if (!outputUrl) {
+      toast.error("No output URL available");
       return;
     }
 
     try {
-      const response = await fetch(videoUrl);
+      const response = await fetch(outputUrl);
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
+      const isVideo = isVideoPrediction(prediction);
+      const ext = isVideo ? "mp4" : (outputUrl.includes(".png") ? "png" : "webp");
       const a = document.createElement("a");
       a.href = url;
-      a.download = `video_${prediction.id}.mp4`;
+      a.download = `${isVideo ? "video" : "image"}_${prediction.id}.${ext}`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      toast.success("Video downloaded!");
+      toast.success("Downloaded!");
     } catch (err) {
       console.error("Download error:", err);
-      toast.error("Failed to download video");
+      toast.error("Failed to download");
     }
   };
 
   const downloadSelected = async () => {
     if (selectedIds.size === 0) {
-      toast.error("No videos selected");
+      toast.error("No items selected");
       return;
     }
 
@@ -156,14 +174,16 @@ export function RetrievePanel() {
       
       let downloadCount = 0;
       for (const prediction of selectedPredictions) {
-        const videoUrl = getVideoUrl(prediction);
-        if (!videoUrl) continue;
+        const outputUrl = getOutputUrl(prediction);
+        if (!outputUrl) continue;
 
         try {
-          const response = await fetch(videoUrl);
+          const response = await fetch(outputUrl);
           const blob = await response.blob();
           const timestamp = new Date(prediction.created_at).toISOString().split("T")[0];
-          zip.file(`${timestamp}_${prediction.id}.mp4`, blob);
+          const isVideo = isVideoPrediction(prediction);
+          const ext = isVideo ? "mp4" : (outputUrl.includes(".png") ? "png" : "webp");
+          zip.file(`${timestamp}_${prediction.id}.${ext}`, blob);
           downloadCount++;
         } catch (err) {
           console.error(`Failed to fetch video ${prediction.id}:`, err);
@@ -171,7 +191,7 @@ export function RetrievePanel() {
       }
 
       if (downloadCount === 0) {
-        toast.error("No videos could be downloaded");
+        toast.error("No items could be downloaded");
         return;
       }
 
@@ -179,13 +199,13 @@ export function RetrievePanel() {
       const url = URL.createObjectURL(content);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `replicate_videos_${new Date().toISOString().split("T")[0]}.zip`;
+      a.download = `replicate_outputs_${new Date().toISOString().split("T")[0]}.zip`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
       
-      toast.success(`Downloaded ${downloadCount} videos as ZIP`);
+      toast.success(`Downloaded ${downloadCount} items as ZIP`);
     } catch (err) {
       console.error("ZIP download error:", err);
       toast.error("Failed to create ZIP file");
@@ -198,11 +218,16 @@ export function RetrievePanel() {
     return predictions.filter(p => {
       const matchesSearch = searchQuery === "" || 
         p.input?.prompt?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.id.toLowerCase().includes(searchQuery.toLowerCase());
+        p.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        p.model?.toLowerCase().includes(searchQuery.toLowerCase());
       
       const matchesStatus = statusFilter === "all" || p.status === statusFilter;
       
-      return matchesSearch && matchesStatus;
+      const matchesType = typeFilter === "all" || 
+        (typeFilter === "video" && isVideoPrediction(p)) ||
+        (typeFilter === "image" && isImagePrediction(p));
+      
+      return matchesSearch && matchesStatus && matchesType;
     });
   };
 
@@ -273,8 +298,19 @@ export function RetrievePanel() {
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-muted-foreground" />
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <Filter className="w-4 h-4 text-muted-foreground" />
+              <select
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value as any)}
+                className="bg-background border border-border rounded-md px-3 py-2 text-sm"
+              >
+                <option value="all">All Types</option>
+                <option value="video">Videos</option>
+                <option value="image">Images</option>
+              </select>
+            </div>
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as any)}
@@ -326,16 +362,17 @@ export function RetrievePanel() {
             ) : filteredPredictions.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
                 {predictions.length === 0 ? (
-                  <p>No video predictions found. Generate some videos first!</p>
+                  <p>No predictions found. Generate some content first!</p>
                 ) : (
-                  <p>No videos match your search criteria</p>
+                  <p>No items match your search criteria</p>
                 )}
               </div>
             ) : (
               filteredPredictions.map((prediction) => {
-                const videoUrl = getVideoUrl(prediction);
+                const outputUrl = getOutputUrl(prediction);
+                const isVideo = isVideoPrediction(prediction);
                 const isSelected = selectedIds.has(prediction.id);
-                const canSelect = prediction.status === "succeeded" && videoUrl;
+                const canSelect = prediction.status === "succeeded" && outputUrl;
 
                 return (
                   <div
@@ -355,22 +392,34 @@ export function RetrievePanel() {
                       />
                     </div>
 
-                    {/* Video Preview */}
+                    {/* Preview */}
                     <div className="w-32 h-20 rounded-md overflow-hidden bg-muted flex-shrink-0">
-                      {videoUrl ? (
-                        <video
-                          src={videoUrl}
-                          className="w-full h-full object-cover"
-                          muted
-                          onMouseEnter={(e) => e.currentTarget.play()}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.pause();
-                            e.currentTarget.currentTime = 0;
-                          }}
-                        />
+                      {outputUrl ? (
+                        isVideo ? (
+                          <video
+                            src={outputUrl}
+                            className="w-full h-full object-cover"
+                            muted
+                            onMouseEnter={(e) => e.currentTarget.play()}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.pause();
+                              e.currentTarget.currentTime = 0;
+                            }}
+                          />
+                        ) : (
+                          <img
+                            src={outputUrl}
+                            alt="Generated"
+                            className="w-full h-full object-cover"
+                          />
+                        )
                       ) : (
                         <div className="w-full h-full flex items-center justify-center">
-                          <Video className="w-8 h-8 text-muted-foreground" />
+                          {isVideo ? (
+                            <Video className="w-8 h-8 text-muted-foreground" />
+                          ) : (
+                            <Image className="w-8 h-8 text-muted-foreground" />
+                          )}
                         </div>
                       )}
                     </div>
@@ -410,11 +459,11 @@ export function RetrievePanel() {
 
                     {/* Actions */}
                     <div className="flex-shrink-0">
-                      {videoUrl && (
+                      {outputUrl && (
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() => downloadSingleVideo(prediction)}
+                          onClick={() => downloadSingle(prediction)}
                         >
                           <Download className="w-4 h-4" />
                         </Button>
