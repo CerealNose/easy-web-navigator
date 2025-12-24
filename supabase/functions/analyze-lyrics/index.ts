@@ -50,11 +50,19 @@ For each storyline, consider:
 - A song about "fire" might represent passion or destruction
 - Love songs might be about addiction, loss, or self-discovery
 
-Each storyline should be complete and distinct, offering a genuinely different creative direction for a music video.`
+Each storyline should be complete and distinct, offering a genuinely different creative direction for a music video.
+
+**CRITICAL PROTAGONIST RULE**: 
+The protagonist must ALWAYS be described as a SILHOUETTE figure. Choose one of these three options:
+1. **Male Silhouette**: A dark silhouette of a male figure - describe posture, build (slim/athletic/broad), height impression, any distinctive silhouette features (hair outline, clothing shape)
+2. **Female Silhouette**: A dark silhouette of a female figure - describe posture, build, hair silhouette (long flowing/short/tied up), clothing outline, stance
+3. **Abstract Silhouette**: A non-human or abstract silhouette shape - could be a morphing shadow, a fragmented figure, geometric human-like form, or ethereal smoke-like presence
+
+The protagonist description should focus on the SHAPE and OUTLINE visible in silhouette form against various backdrops. Never describe facial features, skin tone, or eye color - only what would be visible as a dark shadow/silhouette.`
           },
           {
             role: "user",
-            content: `Analyze these lyrics deeply. Look for both the obvious meaning AND the underlying themes, metaphors, and emotions. Create 3 distinct storyline interpretations:\n\n${lyrics}`
+            content: `Analyze these lyrics deeply. Look for both the obvious meaning AND the underlying themes, metaphors, and emotions. Create 3 distinct storyline interpretations. Remember: ALL protagonists MUST be described as silhouettes (male, female, or abstract).\n\n${lyrics}`
           }
         ],
         tools: [
@@ -105,7 +113,7 @@ Each storyline should be complete and distinct, offering a genuinely different c
                         },
                         protagonist: {
                           type: "string",
-                          description: "EXTREMELY DETAILED physical description of the main character. Include: exact age, gender, ethnicity, skin tone, hair color/style/length, eye color, facial features, body type, height, distinctive marks, clothing style. Be VERY specific."
+                          description: "SILHOUETTE DESCRIPTION ONLY. Must be one of: 1) Male silhouette - describe build, posture, hair outline, clothing shape. 2) Female silhouette - describe build, stance, hair silhouette, clothing outline. 3) Abstract silhouette - morphing shadow, fragmented figure, geometric form, or ethereal presence. Focus ONLY on shape/outline visible as a dark shadow. NO facial features, skin tone, or colors."
                         },
                         setting: {
                           type: "string",
