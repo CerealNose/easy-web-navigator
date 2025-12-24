@@ -639,7 +639,14 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
       }
       
       setGeneratedScenePrompts(prompts);
-      toast.success(`Generated ${prompts.length} scene prompts!`);
+      
+      // Also update uploadedSchedule with the generated prompts so they're used in calculateScenes
+      setUploadedSchedule(prev => prev.map((item, idx) => ({
+        ...item,
+        prompt: prompts[idx]?.prompt || item.prompt
+      })));
+      
+      toast.success(`Generated ${prompts.length} scene prompts! They will be used for video generation.`);
     } catch (err) {
       console.error("Scene prompt generation error:", err);
       toast.error("Failed to generate scene prompts");
