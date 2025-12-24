@@ -1,0 +1,444 @@
+import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Download, Loader2, RefreshCw, Video, CheckSquare, Square, Calendar, Clock, Search, Filter, X } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
+import JSZip from "jszip";
+
+interface ReplicatePrediction {
+  id: string;
+  status: string;
+  created_at: string;
+  completed_at?: string;
+  output?: string | string[];
+  input?: {
+    prompt?: string;
+    image?: string;
+  };
+  model: string;
+  version: string;
+  error?: string;
+}
+
+export function RetrievePanel() {
+  const [predictions, setPredictions] = useState<ReplicatePrediction[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isLoading, setIsLoading] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "succeeded" | "failed">("succeeded");
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+
+  const fetchPredictions = async (loadMore = false) => {
+    setIsLoading(true);
+    try {
+      const response = await supabase.functions.invoke("retrieve-predictions", {
+        body: { 
+          cursor: loadMore ? cursor : null,
+          limit: 50
+        }
+      });
+
+      if (response.error) throw response.error;
+
+      const data = response.data;
+      const newPredictions = data.predictions || [];
+      
+      // Filter to only video predictions (seedance-1-lite)
+      const videoPredictions = newPredictions.filter((p: ReplicatePrediction) => 
+        p.model?.includes("seedance") || p.model?.includes("bytedance")
+      );
+
+      if (loadMore) {
+        setPredictions(prev => [...prev, ...videoPredictions]);
+      } else {
+        setPredictions(videoPredictions);
+      }
+      
+      setCursor(data.next || null);
+      setHasMore(!!data.next);
+      
+      if (videoPredictions.length === 0 && !loadMore) {
+        toast.info("No video predictions found in your Replicate account");
+      } else if (!loadMore) {
+        toast.success(`Found ${videoPredictions.length} video predictions`);
+      }
+    } catch (err) {
+      console.error("Error fetching predictions:", err);
+      toast.error("Failed to fetch predictions from Replicate");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPredictions();
+  }, []);
+
+  const toggleSelection = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const selectAll = () => {
+    const filtered = getFilteredPredictions();
+    const succeededIds = filtered
+      .filter(p => p.status === "succeeded" && getVideoUrl(p))
+      .map(p => p.id);
+    setSelectedIds(new Set(succeededIds));
+  };
+
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+  };
+
+  const getVideoUrl = (prediction: ReplicatePrediction): string | null => {
+    if (!prediction.output) return null;
+    if (typeof prediction.output === "string") return prediction.output;
+    if (Array.isArray(prediction.output) && prediction.output.length > 0) {
+      return prediction.output[0];
+    }
+    return null;
+  };
+
+  const downloadSingleVideo = async (prediction: ReplicatePrediction) => {
+    const videoUrl = getVideoUrl(prediction);
+    if (!videoUrl) {
+      toast.error("No video URL available");
+      return;
+    }
+
+    try {
+      const response = await fetch(videoUrl);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `video_${prediction.id}.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success("Video downloaded!");
+    } catch (err) {
+      console.error("Download error:", err);
+      toast.error("Failed to download video");
+    }
+  };
+
+  const downloadSelected = async () => {
+    if (selectedIds.size === 0) {
+      toast.error("No videos selected");
+      return;
+    }
+
+    setIsDownloading(true);
+    try {
+      const zip = new JSZip();
+      const selectedPredictions = predictions.filter(p => selectedIds.has(p.id));
+      
+      let downloadCount = 0;
+      for (const prediction of selectedPredictions) {
+        const videoUrl = getVideoUrl(prediction);
+        if (!videoUrl) continue;
+
+        try {
+          const response = await fetch(videoUrl);
+          const blob = await response.blob();
+          const timestamp = new Date(prediction.created_at).toISOString().split("T")[0];
+          zip.file(`${timestamp}_${prediction.id}.mp4`, blob);
+          downloadCount++;
+        } catch (err) {
+          console.error(`Failed to fetch video ${prediction.id}:`, err);
+        }
+      }
+
+      if (downloadCount === 0) {
+        toast.error("No videos could be downloaded");
+        return;
+      }
+
+      const content = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(content);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `replicate_videos_${new Date().toISOString().split("T")[0]}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      toast.success(`Downloaded ${downloadCount} videos as ZIP`);
+    } catch (err) {
+      console.error("ZIP download error:", err);
+      toast.error("Failed to create ZIP file");
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  const getFilteredPredictions = () => {
+    return predictions.filter(p => {
+      const matchesSearch = searchQuery === "" || 
+        p.input?.prompt?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        p.id.toLowerCase().includes(searchQuery.toLowerCase());
+      
+      const matchesStatus = statusFilter === "all" || p.status === statusFilter;
+      
+      return matchesSearch && matchesStatus;
+    });
+  };
+
+  const formatDate = (dateStr: string) => {
+    return new Date(dateStr).toLocaleString();
+  };
+
+  const formatDuration = (prediction: ReplicatePrediction) => {
+    if (!prediction.completed_at || !prediction.created_at) return "—";
+    const start = new Date(prediction.created_at).getTime();
+    const end = new Date(prediction.completed_at).getTime();
+    const seconds = Math.round((end - start) / 1000);
+    return `${seconds}s`;
+  };
+
+  const filteredPredictions = getFilteredPredictions();
+  const selectedCount = selectedIds.size;
+
+  return (
+    <Card className="p-6 glass-card border-primary/20">
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center">
+              <Video className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold">Retrieve Videos</h2>
+              <p className="text-sm text-muted-foreground">
+                Browse and download past generated videos from Replicate
+              </p>
+            </div>
+          </div>
+          <Button
+            onClick={() => fetchPredictions()}
+            disabled={isLoading}
+            variant="outline"
+            size="sm"
+          >
+            {isLoading ? (
+              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+            ) : (
+              <RefreshCw className="w-4 h-4 mr-2" />
+            )}
+            Refresh
+          </Button>
+        </div>
+
+        {/* Filters */}
+        <div className="flex flex-wrap gap-4">
+          <div className="flex-1 min-w-[200px]">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by prompt or ID..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-muted-foreground" />
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as any)}
+              className="bg-background border border-border rounded-md px-3 py-2 text-sm"
+            >
+              <option value="all">All Status</option>
+              <option value="succeeded">Succeeded</option>
+              <option value="failed">Failed</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Selection Actions */}
+        <div className="flex items-center justify-between py-2 px-3 bg-muted/30 rounded-lg">
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="sm" onClick={selectAll}>
+              <CheckSquare className="w-4 h-4 mr-2" />
+              Select All
+            </Button>
+            <Button variant="ghost" size="sm" onClick={clearSelection}>
+              <Square className="w-4 h-4 mr-2" />
+              Clear
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              {selectedCount} selected
+            </span>
+          </div>
+          <Button
+            onClick={downloadSelected}
+            disabled={selectedCount === 0 || isDownloading}
+            size="sm"
+          >
+            {isDownloading ? (
+              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+            ) : (
+              <Download className="w-4 h-4 mr-2" />
+            )}
+            Download Selected ({selectedCount})
+          </Button>
+        </div>
+
+        {/* Predictions List */}
+        <ScrollArea className="h-[500px]">
+          <div className="space-y-3 pr-4">
+            {isLoading && predictions.length === 0 ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              </div>
+            ) : filteredPredictions.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                {predictions.length === 0 ? (
+                  <p>No video predictions found. Generate some videos first!</p>
+                ) : (
+                  <p>No videos match your search criteria</p>
+                )}
+              </div>
+            ) : (
+              filteredPredictions.map((prediction) => {
+                const videoUrl = getVideoUrl(prediction);
+                const isSelected = selectedIds.has(prediction.id);
+                const canSelect = prediction.status === "succeeded" && videoUrl;
+
+                return (
+                  <div
+                    key={prediction.id}
+                    className={`flex items-start gap-4 p-4 rounded-lg border transition-all ${
+                      isSelected
+                        ? "border-primary bg-primary/10"
+                        : "border-border/50 bg-muted/20 hover:bg-muted/40"
+                    }`}
+                  >
+                    {/* Checkbox */}
+                    <div className="pt-1">
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() => toggleSelection(prediction.id)}
+                        disabled={!canSelect}
+                      />
+                    </div>
+
+                    {/* Video Preview */}
+                    <div className="w-32 h-20 rounded-md overflow-hidden bg-muted flex-shrink-0">
+                      {videoUrl ? (
+                        <video
+                          src={videoUrl}
+                          className="w-full h-full object-cover"
+                          muted
+                          onMouseEnter={(e) => e.currentTarget.play()}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.pause();
+                            e.currentTarget.currentTime = 0;
+                          }}
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <Video className="w-8 h-8 text-muted-foreground" />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                            prediction.status === "succeeded"
+                              ? "bg-green-500/20 text-green-400"
+                              : prediction.status === "failed"
+                              ? "bg-red-500/20 text-red-400"
+                              : "bg-yellow-500/20 text-yellow-400"
+                          }`}
+                        >
+                          {prediction.status}
+                        </span>
+                        <span className="text-xs text-muted-foreground font-mono">
+                          {prediction.id.slice(0, 12)}...
+                        </span>
+                      </div>
+                      <p className="text-sm text-foreground line-clamp-2 mb-2">
+                        {prediction.input?.prompt || "No prompt available"}
+                      </p>
+                      <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <Calendar className="w-3 h-3" />
+                          {formatDate(prediction.created_at)}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          {formatDuration(prediction)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex-shrink-0">
+                      {videoUrl && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => downloadSingleVideo(prediction)}
+                        >
+                          <Download className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </ScrollArea>
+
+        {/* Load More */}
+        {hasMore && (
+          <div className="flex justify-center">
+            <Button
+              variant="outline"
+              onClick={() => fetchPredictions(true)}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : null}
+              Load More
+            </Button>
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
