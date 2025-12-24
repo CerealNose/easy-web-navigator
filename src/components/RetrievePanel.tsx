@@ -50,10 +50,14 @@ export function RetrievePanel() {
       const data = response.data;
       const newPredictions = data.predictions || [];
       
-      // Filter to only video predictions (seedance-1-lite)
-      const videoPredictions = newPredictions.filter((p: ReplicatePrediction) => 
-        p.model?.includes("seedance") || p.model?.includes("bytedance")
-      );
+      // Filter to only video predictions (seedance-1-lite) and sort by newest first
+      const videoPredictions = newPredictions
+        .filter((p: ReplicatePrediction) => 
+          p.model?.includes("seedance") || p.model?.includes("bytedance")
+        )
+        .sort((a: ReplicatePrediction, b: ReplicatePrediction) => 
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
 
       if (loadMore) {
         setPredictions(prev => [...prev, ...videoPredictions]);
