@@ -109,10 +109,16 @@ export function RetrievePanel() {
 
   const selectAll = () => {
     const filtered = getFilteredPredictions();
-    const succeededIds = filtered
-      .filter(p => p.status === "succeeded" && getOutputUrl(p))
+    // Only select items that have direct output (not just stream URLs which often fail)
+    const downloadableIds = filtered
+      .filter(p => p.status === "succeeded" && p.output && !p.data_removed)
       .map(p => p.id);
-    setSelectedIds(new Set(succeededIds));
+    setSelectedIds(new Set(downloadableIds));
+    
+    const skipped = filtered.filter(p => p.status === "succeeded" && (!p.output || p.data_removed)).length;
+    if (skipped > 0) {
+      toast.info(`Skipped ${skipped} items with expired/removed data`);
+    }
   };
 
   const clearSelection = () => {
@@ -179,6 +185,19 @@ export function RetrievePanel() {
     }
   };
 
+  const fetchWithTimeout = async (url: string, timeoutMs = 10000): Promise<Response> => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      return response;
+    } catch (err) {
+      clearTimeout(timeoutId);
+      throw err;
+    }
+  };
+
   const downloadSelected = async () => {
     if (selectedIds.size === 0) {
       toast.error("No items selected");
@@ -190,13 +209,31 @@ export function RetrievePanel() {
       const zip = new JSZip();
       const selectedPredictions = predictions.filter(p => selectedIds.has(p.id));
       
+      // Filter to only downloadable items (with direct output, not removed)
+      const downloadable = selectedPredictions.filter(p => p.output && !p.data_removed);
+      
+      if (downloadable.length === 0) {
+        toast.error("No downloadable items selected (data may have been removed by Replicate)");
+        setIsDownloading(false);
+        return;
+      }
+
       let downloadCount = 0;
-      for (const prediction of selectedPredictions) {
+      let failedCount = 0;
+      
+      for (const prediction of downloadable) {
         const outputUrl = getOutputUrl(prediction);
-        if (!outputUrl) continue;
+        if (!outputUrl) {
+          failedCount++;
+          continue;
+        }
 
         try {
-          const response = await fetch(outputUrl);
+          const response = await fetchWithTimeout(outputUrl, 15000);
+          if (!response.ok) {
+            failedCount++;
+            continue;
+          }
           const blob = await response.blob();
           const timestamp = new Date(prediction.created_at).toISOString().split("T")[0];
           const isVideo = isVideoPrediction(prediction);
@@ -204,12 +241,14 @@ export function RetrievePanel() {
           zip.file(`${timestamp}_${prediction.id}.${ext}`, blob);
           downloadCount++;
         } catch (err) {
-          console.error(`Failed to fetch video ${prediction.id}:`, err);
+          console.error(`Failed to fetch ${prediction.id}:`, err);
+          failedCount++;
         }
       }
 
       if (downloadCount === 0) {
-        toast.error("No items could be downloaded");
+        toast.error("No items could be downloaded - URLs may have expired");
+        setIsDownloading(false);
         return;
       }
 
@@ -223,7 +262,11 @@ export function RetrievePanel() {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
       
-      toast.success(`Downloaded ${downloadCount} items as ZIP`);
+      if (failedCount > 0) {
+        toast.success(`Downloaded ${downloadCount} items (${failedCount} failed)`);
+      } else {
+        toast.success(`Downloaded ${downloadCount} items as ZIP`);
+      }
     } catch (err) {
       console.error("ZIP download error:", err);
       toast.error("Failed to create ZIP file");
