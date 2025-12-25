@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Video, Play, Download, Settings, Loader2, ImageIcon, Film, Clock, Layers, Upload, FileJson, FileText, Images, X, AlertCircle, Music, Sparkles, RefreshCw, Archive, StopCircle, Edit3, ChevronDown } from "lucide-react";
+import { Video, Play, Download, Settings, Loader2, ImageIcon, Film, Clock, Layers, Upload, FileJson, FileText, Images, X, AlertCircle, Music, Sparkles, RefreshCw, Archive, StopCircle, Edit3, ChevronDown, Cpu, Cloud } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -14,6 +14,8 @@ import { VideoPreviewPlayer } from "./VideoPreviewPlayer";
 import { SceneData } from "./remotion/MusicVideoComposition";
 import { SceneEditor, EditableScene } from "./SceneEditor";
 import JSZip from "jszip";
+import { useSettings } from "@/contexts/SettingsContext";
+import { useComfyUI } from "@/hooks/useComfyUI";
 
 interface Section {
   name: string;
@@ -160,6 +162,10 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
   const [uploadedFileName, setUploadedFileName] = useState<string>("");
   const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([]);
   
+  // Settings context and ComfyUI hook
+  const { inferenceMode, isComfyUIConnected } = useSettings();
+  const { generateImage: generateLocalImage, progress: localProgress } = useComfyUI();
+  
   // Settings
   const [stylePreset, setStylePreset] = useState<keyof typeof STYLE_PRESETS>("cinematic");
   const [motionPreset, setMotionPreset] = useState<keyof typeof MOTION_PRESETS>("slow");
@@ -208,6 +214,10 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
 
   // LocalStorage key for pending jobs
   const PENDING_JOBS_KEY = 'genvid_pending_jobs';
+  
+  // Helper to determine if we should use local generation
+  const useLocalGeneration = inferenceMode === "local" || 
+    (inferenceMode === "hybrid" && isComfyUIConnected);
 
   // Save pending jobs to localStorage
   const savePendingJobs = useCallback((taskIds: string[]) => {
@@ -1236,18 +1246,50 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
           // Use base seed + scene index for variation while maintaining style consistency
           const sceneSeed = batchSeed ? batchSeed + i : undefined;
 
-          const imageRes = await supabase.functions.invoke("generate-image", {
-            body: { 
-              prompt: scenePrompt, // Use the AI-generated prompt
-              seed: sceneSeed,
-              width: sizeConfig.width,
-              height: sizeConfig.height,
-              quality: imageQuality[0]
-            },
-          });
+          // Check if we should use local ComfyUI generation
+          if (useLocalGeneration) {
+            // Use local ComfyUI
+            toast.info(`Scene ${i + 1}: Generating image locally...`);
+            try {
+              const localResult = await generateLocalImage(scenePrompt, {
+                seed: sceneSeed,
+                width: sizeConfig.width,
+                height: sizeConfig.height,
+              });
+              imageUrl = localResult.imageUrl;
+              console.log(`Scene ${i + 1}: Local image generated (seed: ${localResult.seed})`);
+            } catch (localError) {
+              console.error(`Scene ${i + 1}: Local generation failed, falling back to cloud`, localError);
+              toast.warning(`Scene ${i + 1}: Local failed, using cloud...`);
+              
+              // Fallback to cloud
+              const imageRes = await supabase.functions.invoke("generate-image", {
+                body: { 
+                  prompt: scenePrompt,
+                  seed: sceneSeed,
+                  width: sizeConfig.width,
+                  height: sizeConfig.height,
+                  quality: imageQuality[0]
+                },
+              });
+              if (imageRes.error) throw imageRes.error;
+              imageUrl = imageRes.data.imageUrl;
+            }
+          } else {
+            // Use cloud (Replicate)
+            const imageRes = await supabase.functions.invoke("generate-image", {
+              body: { 
+                prompt: scenePrompt, // Use the AI-generated prompt
+                seed: sceneSeed,
+                width: sizeConfig.width,
+                height: sizeConfig.height,
+                quality: imageQuality[0]
+              },
+            });
 
-          if (imageRes.error) throw imageRes.error;
-          imageUrl = imageRes.data.imageUrl;
+            if (imageRes.error) throw imageRes.error;
+            imageUrl = imageRes.data.imageUrl;
+          }
 
           setScenes(prev => prev.map((s, idx) => 
             idx === i ? { ...s, imageUrl, status: autoGenerateVideo ? 'generating-video' : 'complete' } : s
@@ -2676,16 +2718,31 @@ Generated by LyricVision on ${new Date().toLocaleDateString()}
             </>
           ) : isPrepared ? (
             <>
-              <Video className="w-5 h-5" />
+              {useLocalGeneration ? <Cpu className="w-5 h-5" /> : <Video className="w-5 h-5" />}
               Generate Videos ({editableScenes.length})
             </>
           ) : (
             <>
-              <Video className="w-5 h-5" />
+              {useLocalGeneration ? <Cpu className="w-5 h-5" /> : <Video className="w-5 h-5" />}
               Quick Generate ({previewScenes.length})
             </>
           )}
         </Button>
+        
+        {/* Inference Mode Indicator */}
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          {useLocalGeneration ? (
+            <>
+              <Cpu className="w-4 h-4 text-green-500" />
+              <span>Local images</span>
+            </>
+          ) : (
+            <>
+              <Cloud className="w-4 h-4" />
+              <span>Cloud images</span>
+            </>
+          )}
+        </div>
 
         {isGenerating && (
           <Button 
