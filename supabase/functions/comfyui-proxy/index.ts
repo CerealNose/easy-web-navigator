@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { encode as base64Encode } from "https://deno.land/std@0.168.0/encoding/base64.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -64,9 +65,9 @@ serve(async (req) => {
         });
         
         if (response.ok) {
-          // Return image as base64
+          // Return image as base64 using proper encoding (avoids stack overflow)
           const arrayBuffer = await response.arrayBuffer();
-          const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+          const base64 = base64Encode(arrayBuffer);
           const contentType = response.headers.get('content-type') || 'image/png';
           
           return new Response(
