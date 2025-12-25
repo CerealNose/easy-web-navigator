@@ -3,9 +3,11 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Image, Copy, Download, Wand2, Check, Loader2, Video, Play } from "lucide-react";
+import { Image, Copy, Download, Wand2, Check, Loader2, Video, Play, Cpu, Cloud } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { useSettings } from "@/contexts/SettingsContext";
+import { useComfyUI } from "@/hooks/useComfyUI";
 import {
   Dialog,
   DialogContent,
@@ -37,6 +39,10 @@ export function MoodImagePanel({ prompt, themes, onPromptChange }: MoodImagePane
   const [videoPrompt, setVideoPrompt] = useState("cinematic motion, slow camera movement, atmospheric");
   const [videoPreviewOpen, setVideoPreviewOpen] = useState(false);
 
+  // Settings and ComfyUI integration
+  const { inferenceMode, isComfyUIConnected } = useSettings();
+  const { generateImage: generateLocalImage, progress: localProgress } = useComfyUI();
+
   const copyPrompt = async () => {
     await navigator.clipboard.writeText(prompt);
     setCopied(true);
@@ -52,16 +58,32 @@ export function MoodImagePanel({ prompt, themes, onPromptChange }: MoodImagePane
 
     setIsGenerating(true);
     try {
-      const { data, error } = await supabase.functions.invoke("generate-image", {
-        body: { prompt: prompt.trim() }
-      });
+      const useLocalGeneration = inferenceMode === "local" || 
+        (inferenceMode === "hybrid" && isComfyUIConnected);
 
-      if (error) throw new Error(error.message);
-      if (data.error) throw new Error(data.error);
+      if (useLocalGeneration) {
+        // Use local ComfyUI
+        toast.info("Generating with local ComfyUI...");
+        const result = await generateLocalImage(prompt.trim(), {
+          width: 1280,
+          height: 720,
+        });
+        setGeneratedImage(result.imageUrl);
+        toast.success(`Image generated locally! (seed: ${result.seed})`);
+      } else {
+        // Use cloud (Replicate)
+        const { data, error } = await supabase.functions.invoke("generate-image", {
+          body: { prompt: prompt.trim() }
+        });
 
-      setGeneratedImage(data.imageUrl);
+        if (error) throw new Error(error.message);
+        if (data.error) throw new Error(data.error);
+
+        setGeneratedImage(data.imageUrl);
+        toast.success("Image generated via cloud!");
+      }
+      
       setGeneratedVideo(null); // Reset video when new image is generated
-      toast.success("Image generated successfully!");
     } catch (err) {
       console.error("Image generation error:", err);
       toast.error(err instanceof Error ? err.message : "Failed to generate image");
@@ -213,19 +235,46 @@ export function MoodImagePanel({ prompt, themes, onPromptChange }: MoodImagePane
             size="sm" 
             onClick={generateImage} 
             disabled={!prompt.trim() || isGenerating}
+            title={inferenceMode === "local" ? "Using local ComfyUI" : inferenceMode === "hybrid" ? "Hybrid mode" : "Using cloud"}
           >
             {isGenerating ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Generating...
+                {inferenceMode === "local" || (inferenceMode === "hybrid" && isComfyUIConnected) 
+                  ? `Local ${localProgress > 0 ? `(${Math.round(localProgress)}%)` : "..."}` 
+                  : "Cloud..."}
               </>
             ) : (
               <>
-                <Image className="w-4 h-4" />
+                {inferenceMode === "local" || (inferenceMode === "hybrid" && isComfyUIConnected) ? (
+                  <Cpu className="w-4 h-4" />
+                ) : (
+                  <Cloud className="w-4 h-4" />
+                )}
                 Generate Image
               </>
             )}
           </Button>
+          
+          {/* Mode indicator */}
+          <span className="text-xs text-muted-foreground flex items-center gap-1">
+            {inferenceMode === "local" ? (
+              <>
+                <Cpu className="w-3 h-3" />
+                Local
+              </>
+            ) : inferenceMode === "hybrid" ? (
+              <>
+                {isComfyUIConnected ? <Cpu className="w-3 h-3 text-green-500" /> : <Cloud className="w-3 h-3" />}
+                {isComfyUIConnected ? "Local" : "Cloud"}
+              </>
+            ) : (
+              <>
+                <Cloud className="w-3 h-3" />
+                Cloud
+              </>
+            )}
+          </span>
         </div>
       </div>
 
@@ -370,10 +419,24 @@ export function MoodImagePanel({ prompt, themes, onPromptChange }: MoodImagePane
       </Dialog>
 
       <Card className="p-4 glass-card border-border/50">
-        <h3 className="text-sm font-medium text-muted-foreground mb-2">Powered by FLUX & WAN 2.1</h3>
+        <h3 className="text-sm font-medium text-muted-foreground mb-2">
+          {inferenceMode === "cloud" ? "Powered by FLUX & WAN 2.1 (Cloud)" : 
+           inferenceMode === "local" ? "Powered by Local ComfyUI" :
+           "Hybrid Mode: Local + Cloud"}
+        </h3>
         <ul className="text-sm text-muted-foreground/80 space-y-1">
-          <li>• FLUX Schnell: 720p (16:9) cinematic images</li>
-          <li>• WAN 2.1 I2V: Image-to-video animation</li>
+          {inferenceMode === "local" || (inferenceMode === "hybrid" && isComfyUIConnected) ? (
+            <>
+              <li>• FLUX.1 Schnell (GGUF): Local 720p images</li>
+              <li>• Your RTX 4060 does all the work</li>
+              <li>• No cloud costs for image generation</li>
+            </>
+          ) : (
+            <>
+              <li>• FLUX Schnell: 720p (16:9) cinematic images</li>
+              <li>• WAN 2.1 I2V: Image-to-video animation</li>
+            </>
+          )}
           <li>• Up to 81 frames (~3.4 seconds at 24fps)</li>
           <li>• Hover video thumbnail to preview</li>
         </ul>
