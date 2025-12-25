@@ -20,7 +20,8 @@ import {
   CheckCircle2, 
   XCircle, 
   Loader2,
-  ExternalLink 
+  ExternalLink,
+  Link2
 } from "lucide-react";
 import { useSettings, InferenceMode } from "@/contexts/SettingsContext";
 import { toast } from "sonner";
@@ -61,13 +62,20 @@ export function SettingsPanel() {
   
   const [open, setOpen] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
-  const [localHost, setLocalHost] = useState(comfyUIConfig.host);
-  const [localPort, setLocalPort] = useState(comfyUIConfig.port.toString());
+  const [localBaseUrl, setLocalBaseUrl] = useState(comfyUIConfig.baseUrl);
+
+  // Sync local state when config changes
+  useEffect(() => {
+    setLocalBaseUrl(comfyUIConfig.baseUrl);
+  }, [comfyUIConfig.baseUrl]);
 
   // Check connection when dialog opens or config changes
   useEffect(() => {
     if (open && (inferenceMode === "local" || inferenceMode === "hybrid")) {
-      handleCheckConnection();
+      // Only auto-check if URL looks valid (not the placeholder)
+      if (!comfyUIConfig.baseUrl.includes("your-tunnel-url")) {
+        handleCheckConnection();
+      }
     }
   }, [open, inferenceMode]);
 
@@ -79,26 +87,28 @@ export function SettingsPanel() {
     if (connected) {
       toast.success("ComfyUI connected successfully!");
     } else {
-      toast.error("Could not connect to ComfyUI. Is it running?");
+      toast.error("Could not connect to ComfyUI. Check your tunnel URL.");
     }
   };
 
   const handleSaveConfig = () => {
-    const port = parseInt(localPort, 10);
-    if (isNaN(port) || port < 1 || port > 65535) {
-      toast.error("Invalid port number");
+    // Basic URL validation
+    try {
+      new URL(localBaseUrl);
+    } catch {
+      toast.error("Invalid URL format. Please enter a valid URL.");
       return;
     }
     
-    setComfyUIConfig({ host: localHost, port });
-    toast.success("ComfyUI configuration saved");
+    setComfyUIConfig({ baseUrl: localBaseUrl });
+    toast.success("ComfyUI URL saved");
   };
 
   const handleModeChange = (mode: InferenceMode) => {
     setInferenceMode(mode);
     
     if (mode === "local" || mode === "hybrid") {
-      toast.info("Make sure ComfyUI is running locally");
+      toast.info("Make sure to set up a tunnel to your ComfyUI instance");
     } else {
       toast.success("Switched to cloud mode");
     }
@@ -185,8 +195,8 @@ export function SettingsPanel() {
             <Card className="p-4 space-y-4 border-border/50">
               <div className="flex items-center justify-between">
                 <Label className="text-base font-semibold flex items-center gap-2">
-                  <Cpu className="w-4 h-4" />
-                  ComfyUI Configuration
+                  <Link2 className="w-4 h-4" />
+                  ComfyUI Tunnel URL
                 </Label>
                 <div className="flex items-center gap-2">
                   {isChecking ? (
@@ -205,38 +215,29 @@ export function SettingsPanel() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="host" className="text-sm">Host</Label>
-                  <Input
-                    id="host"
-                    value={localHost}
-                    onChange={(e) => setLocalHost(e.target.value)}
-                    placeholder="localhost"
-                    className="font-mono text-sm"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="port" className="text-sm">Port</Label>
-                  <Input
-                    id="port"
-                    value={localPort}
-                    onChange={(e) => setLocalPort(e.target.value)}
-                    placeholder="8188"
-                    className="font-mono text-sm"
-                  />
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="baseUrl" className="text-sm">ComfyUI Base URL</Label>
+                <Input
+                  id="baseUrl"
+                  value={localBaseUrl}
+                  onChange={(e) => setLocalBaseUrl(e.target.value)}
+                  placeholder="https://abc123.ngrok.io"
+                  className="font-mono text-sm"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Use a tunnel service (ngrok, Cloudflare Tunnel, Tailscale) to expose your local ComfyUI
+                </p>
               </div>
 
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={handleSaveConfig}>
-                  Save Config
+                  Save URL
                 </Button>
                 <Button 
                   variant="outline" 
                   size="sm" 
                   onClick={handleCheckConnection}
-                  disabled={isChecking}
+                  disabled={isChecking || localBaseUrl.includes("your-tunnel-url")}
                 >
                   {isChecking ? (
                     <Loader2 className="w-4 h-4 animate-spin mr-1" />
@@ -245,21 +246,23 @@ export function SettingsPanel() {
                 </Button>
               </div>
 
-              <div className="text-xs text-muted-foreground space-y-1">
-                <p>Make sure ComfyUI is running with:</p>
-                <code className="block bg-muted/50 p-2 rounded font-mono">
-                  python main.py --listen 0.0.0.0 --port 8188 --enable-cors-header
-                </code>
+              <div className="text-xs text-muted-foreground space-y-2 bg-muted/30 p-3 rounded-lg">
+                <p className="font-medium">Quick Setup with ngrok:</p>
+                <ol className="list-decimal list-inside space-y-1">
+                  <li>Start ComfyUI: <code className="bg-muted px-1 rounded">python main.py --listen 0.0.0.0 --port 8188</code></li>
+                  <li>Run ngrok: <code className="bg-muted px-1 rounded">ngrok http 8188</code></li>
+                  <li>Copy the <code className="bg-muted px-1 rounded">https://...ngrok.io</code> URL above</li>
+                </ol>
               </div>
 
               <Button
                 variant="link"
                 size="sm"
                 className="p-0 h-auto text-primary"
-                onClick={() => window.open('/docs/LOCAL_COMFYUI_SETUP.md', '_blank')}
+                onClick={() => window.open('https://ngrok.com/download', '_blank')}
               >
                 <ExternalLink className="w-3 h-3 mr-1" />
-                View full setup guide
+                Download ngrok
               </Button>
             </Card>
           )}
@@ -275,7 +278,7 @@ export function SettingsPanel() {
                 <p className="text-sm text-muted-foreground">
                   {inferenceMode === "cloud" && "All generation runs on Replicate cloud"}
                   {inferenceMode === "hybrid" && "Images: Local ComfyUI • Videos: Replicate cloud"}
-                  {inferenceMode === "local" && "All generation runs on your local GPU"}
+                  {inferenceMode === "local" && "All generation runs on your local GPU via tunnel"}
                 </p>
               </div>
             </div>

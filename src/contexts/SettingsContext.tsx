@@ -4,8 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 export type InferenceMode = "cloud" | "hybrid" | "local";
 
 interface ComfyUIConfig {
-  host: string;
-  port: number;
+  baseUrl: string;
 }
 
 interface SettingsContextType {
@@ -19,8 +18,7 @@ interface SettingsContextType {
 }
 
 const defaultComfyUIConfig: ComfyUIConfig = {
-  host: "192.168.68.113",
-  port: 8188,
+  baseUrl: "https://your-tunnel-url.ngrok.io",
 };
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
@@ -32,7 +30,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [comfyUIConfig, setComfyUIConfigState] = useState<ComfyUIConfig>(defaultComfyUIConfig);
   const [isComfyUIConnected, setIsComfyUIConnected] = useState(false);
 
-  // Load settings from localStorage on mount - migrate stale localhost configs
+  // Load settings from localStorage on mount - migrate old host/port configs
   useEffect(() => {
     try {
       const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
@@ -40,18 +38,19 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         const parsed = JSON.parse(stored);
         if (parsed.inferenceMode) setInferenceModeState(parsed.inferenceMode);
         
-        // Migrate stale localhost config to the new default IP
         if (parsed.comfyUIConfig) {
           const config = parsed.comfyUIConfig;
-          if (config.host === "localhost" || config.host === "127.0.0.1") {
-            // Update to the new default and save
-            console.log("Migrating ComfyUI config from localhost to", defaultComfyUIConfig.host);
-            setComfyUIConfigState(defaultComfyUIConfig);
+          // Migrate old host/port format to baseUrl
+          if (config.host !== undefined && config.port !== undefined) {
+            const migratedUrl = `http://${config.host}:${config.port}`;
+            console.log("Migrating ComfyUI config from host/port to baseUrl:", migratedUrl);
+            const newConfig = { baseUrl: defaultComfyUIConfig.baseUrl };
+            setComfyUIConfigState(newConfig);
             localStorage.setItem(
               SETTINGS_STORAGE_KEY,
-              JSON.stringify({ inferenceMode: parsed.inferenceMode || "cloud", comfyUIConfig: defaultComfyUIConfig })
+              JSON.stringify({ inferenceMode: parsed.inferenceMode || "cloud", comfyUIConfig: newConfig })
             );
-          } else {
+          } else if (config.baseUrl) {
             setComfyUIConfigState(config);
           }
         }
@@ -84,44 +83,24 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   };
 
   const checkComfyUIConnection = async (): Promise<boolean> => {
-    const tryCheck = async (host: string, port: number) => {
-      const comfyUrl = `http://${host}:${port}`;
+    try {
+      // Normalize URL: remove trailing slash
+      const comfyUrl = comfyUIConfig.baseUrl.replace(/\/$/, "");
+      
       const { data, error } = await supabase.functions.invoke("comfyui-proxy", {
         body: { action: "system_stats", comfyUrl },
       });
 
       if (error || data?.error) {
-        throw new Error((data?.error as string) || error?.message || "Connection check failed");
+        console.error("ComfyUI connection check failed:", error || data?.error);
+        setIsComfyUIConnected(false);
+        return false;
       }
 
-      return true;
-    };
-
-    try {
-      // 1) Try the currently configured host first
-      await tryCheck(comfyUIConfig.host, comfyUIConfig.port);
       setIsComfyUIConnected(true);
       return true;
     } catch (err) {
-      // 2) If user has stale saved config pointing to localhost, try the new default IP once
-      const shouldFallback =
-        comfyUIConfig.host === "localhost" &&
-        defaultComfyUIConfig.host !== "localhost" &&
-        (defaultComfyUIConfig.host !== comfyUIConfig.host || defaultComfyUIConfig.port !== comfyUIConfig.port);
-
-      if (shouldFallback) {
-        try {
-          await tryCheck(defaultComfyUIConfig.host, defaultComfyUIConfig.port);
-          setComfyUIConfigState(defaultComfyUIConfig);
-          saveSettings(inferenceMode, defaultComfyUIConfig);
-          setIsComfyUIConnected(true);
-          return true;
-        } catch (fallbackErr) {
-          console.error("ComfyUI connection check failed (fallback also failed):", fallbackErr);
-        }
-      }
-
-      console.error("ComfyUI connection check failed:", err);
+      console.error("ComfyUI connection check error:", err);
       setIsComfyUIConnected(false);
       return false;
     }
