@@ -15,15 +15,15 @@ interface HistoryItem {
   outputs: Record<string, HistoryOutput>;
 }
 
-// Default FLUX.1 Schnell workflow for ComfyUI
-const createFluxWorkflow = (prompt: string, seed: number, width: number = 1280, height: number = 720) => ({
+// Default workflow using standard CheckpointLoaderSimple (works with any checkpoint: SD1.5, SDXL, FLUX, etc.)
+const createStandardWorkflow = (prompt: string, seed: number, width: number = 1280, height: number = 720) => ({
   "3": {
     "inputs": {
       "seed": seed,
-      "steps": 4,
-      "cfg": 1.0,
+      "steps": 20,
+      "cfg": 7,
       "sampler_name": "euler",
-      "scheduler": "simple",
+      "scheduler": "normal",
       "denoise": 1,
       "model": ["4", 0],
       "positive": ["6", 0],
@@ -35,10 +35,10 @@ const createFluxWorkflow = (prompt: string, seed: number, width: number = 1280, 
   },
   "4": {
     "inputs": {
-      "unet_name": "flux1-schnell-Q4_K_S.gguf"
+      "ckpt_name": "sd_xl_base_1.0.safetensors"
     },
-    "class_type": "UnetLoaderGGUF",
-    "_meta": { "title": "Unet Loader (GGUF)" }
+    "class_type": "CheckpointLoaderSimple",
+    "_meta": { "title": "Load Checkpoint" }
   },
   "5": {
     "inputs": {
@@ -52,15 +52,15 @@ const createFluxWorkflow = (prompt: string, seed: number, width: number = 1280, 
   "6": {
     "inputs": {
       "text": prompt,
-      "clip": ["11", 0]
+      "clip": ["4", 1]
     },
     "class_type": "CLIPTextEncode",
     "_meta": { "title": "CLIP Text Encode (Positive)" }
   },
   "7": {
     "inputs": {
-      "text": "",
-      "clip": ["11", 0]
+      "text": "blurry, low quality, distorted, ugly, bad anatomy",
+      "clip": ["4", 1]
     },
     "class_type": "CLIPTextEncode",
     "_meta": { "title": "CLIP Text Encode (Negative)" }
@@ -68,7 +68,7 @@ const createFluxWorkflow = (prompt: string, seed: number, width: number = 1280, 
   "8": {
     "inputs": {
       "samples": ["3", 0],
-      "vae": ["10", 0]
+      "vae": ["4", 2]
     },
     "class_type": "VAEDecode",
     "_meta": { "title": "VAE Decode" }
@@ -80,85 +80,21 @@ const createFluxWorkflow = (prompt: string, seed: number, width: number = 1280, 
     },
     "class_type": "SaveImage",
     "_meta": { "title": "Save Image" }
-  },
-  "10": {
-    "inputs": {
-      "vae_name": "ae.safetensors"
-    },
-    "class_type": "VAELoader",
-    "_meta": { "title": "Load VAE" }
-  },
-  "11": {
-    "inputs": {
-      "clip_name1": "t5xxl_fp16.safetensors",
-      "clip_name2": "clip_l.safetensors",
-      "type": "flux"
-    },
-    "class_type": "DualCLIPLoader",
-    "_meta": { "title": "DualCLIPLoader" }
   }
 });
 
-// Alternative SDXL workflow for systems without FLUX
-const createSDXLWorkflow = (prompt: string, seed: number, width: number = 1280, height: number = 720) => ({
-  "3": {
-    "inputs": {
-      "seed": seed,
-      "steps": 20,
-      "cfg": 7,
-      "sampler_name": "euler_ancestral",
-      "scheduler": "normal",
-      "denoise": 1,
-      "model": ["4", 0],
-      "positive": ["6", 0],
-      "negative": ["7", 0],
-      "latent_image": ["5", 0]
-    },
-    "class_type": "KSampler"
-  },
-  "4": {
-    "inputs": {
-      "ckpt_name": "sd_xl_base_1.0.safetensors"
-    },
-    "class_type": "CheckpointLoaderSimple"
-  },
-  "5": {
-    "inputs": {
-      "width": width,
-      "height": height,
-      "batch_size": 1
-    },
-    "class_type": "EmptyLatentImage"
-  },
-  "6": {
-    "inputs": {
-      "text": prompt,
-      "clip": ["4", 1]
-    },
-    "class_type": "CLIPTextEncode"
-  },
-  "7": {
-    "inputs": {
-      "text": "blurry, low quality, distorted, ugly",
-      "clip": ["4", 1]
-    },
-    "class_type": "CLIPTextEncode"
-  },
-  "8": {
-    "inputs": {
-      "samples": ["3", 0],
-      "vae": ["4", 2]
-    },
-    "class_type": "VAEDecode"
-  },
-  "9": {
-    "inputs": {
-      "filename_prefix": "ComfyUI",
-      "images": ["8", 0]
-    },
-    "class_type": "SaveImage"
-  }
-});
+// Create workflow with a specific checkpoint name
+const createWorkflowWithCheckpoint = (
+  prompt: string, 
+  seed: number, 
+  width: number, 
+  height: number,
+  checkpointName: string
+) => {
+  const workflow = createStandardWorkflow(prompt, seed, width, height);
+  workflow["4"].inputs.ckpt_name = checkpointName;
+  return workflow;
+};
 
 // Helper to call the proxy edge function
 async function callComfyUIProxy(action: string, comfyUrl: string, payload?: object) {
@@ -285,14 +221,14 @@ export function useComfyUI() {
       seed?: number;
       width?: number;
       height?: number;
-      useFlux?: boolean;
+      checkpointName?: string;
     } = {}
   ): Promise<ComfyUIWorkflowResult> => {
     const { 
       seed = Math.floor(Math.random() * 2147483647),
-      width = 1280,
-      height = 720,
-      useFlux = true 
+      width = 1024,
+      height = 1024,
+      checkpointName = "sd_xl_base_1.0.safetensors"
     } = options;
 
     // Check connection first
@@ -305,9 +241,8 @@ export function useComfyUI() {
     setProgress(0);
 
     try {
-      const workflow = useFlux 
-        ? createFluxWorkflow(prompt, seed, width, height)
-        : createSDXLWorkflow(prompt, seed, width, height);
+      // Use standard workflow with the specified checkpoint
+      const workflow = createWorkflowWithCheckpoint(prompt, seed, width, height, checkpointName);
       
       setProgress(5);
       const promptId = await queuePrompt(workflow);
