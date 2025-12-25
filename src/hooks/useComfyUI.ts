@@ -183,7 +183,8 @@ export function useComfyUI() {
   const [progress, setProgress] = useState(0);
 
   const getComfyUrl = useCallback(() => {
-    return `http://${comfyUIConfig.host}:${comfyUIConfig.port}`;
+    // Normalize: remove trailing slash
+    return comfyUIConfig.baseUrl.replace(/\/$/, "");
   }, [comfyUIConfig]);
 
   // Check connection via proxy
@@ -297,7 +298,7 @@ export function useComfyUI() {
     // Check connection first
     const connected = await checkConnection();
     if (!connected) {
-      throw new Error("ComfyUI is not connected. Please start ComfyUI and check settings.");
+      throw new Error("ComfyUI is not connected. Please check your tunnel URL in settings.");
     }
 
     setIsGenerating(true);
