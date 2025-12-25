@@ -69,24 +69,44 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   };
 
   const checkComfyUIConnection = async (): Promise<boolean> => {
-    try {
-      const comfyUrl = `http://${comfyUIConfig.host}:${comfyUIConfig.port}`;
-      
-      // Use the proxy edge function to check connection
-      const { data, error } = await supabase.functions.invoke('comfyui-proxy', {
-        body: { action: 'system_stats', comfyUrl }
+    const tryCheck = async (host: string, port: number) => {
+      const comfyUrl = `http://${host}:${port}`;
+      const { data, error } = await supabase.functions.invoke("comfyui-proxy", {
+        body: { action: "system_stats", comfyUrl },
       });
-      
+
       if (error || data?.error) {
-        console.error('ComfyUI connection check failed:', error || data?.error);
-        setIsComfyUIConnected(false);
-        return false;
+        throw new Error((data?.error as string) || error?.message || "Connection check failed");
       }
-      
+
+      return true;
+    };
+
+    try {
+      // 1) Try the currently configured host first
+      await tryCheck(comfyUIConfig.host, comfyUIConfig.port);
       setIsComfyUIConnected(true);
       return true;
     } catch (err) {
-      console.error('ComfyUI connection check error:', err);
+      // 2) If user has stale saved config pointing to localhost, try the new default IP once
+      const shouldFallback =
+        comfyUIConfig.host === "localhost" &&
+        defaultComfyUIConfig.host !== "localhost" &&
+        (defaultComfyUIConfig.host !== comfyUIConfig.host || defaultComfyUIConfig.port !== comfyUIConfig.port);
+
+      if (shouldFallback) {
+        try {
+          await tryCheck(defaultComfyUIConfig.host, defaultComfyUIConfig.port);
+          setComfyUIConfigState(defaultComfyUIConfig);
+          saveSettings(inferenceMode, defaultComfyUIConfig);
+          setIsComfyUIConnected(true);
+          return true;
+        } catch (fallbackErr) {
+          console.error("ComfyUI connection check failed (fallback also failed):", fallbackErr);
+        }
+      }
+
+      console.error("ComfyUI connection check failed:", err);
       setIsComfyUIConnected(false);
       return false;
     }
