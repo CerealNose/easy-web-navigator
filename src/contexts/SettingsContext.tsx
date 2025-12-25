@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { supabase } from "@/integrations/supabase/client";
 
 export type InferenceMode = "cloud" | "hybrid" | "local";
 
@@ -69,21 +70,23 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   const checkComfyUIConnection = async (): Promise<boolean> => {
     try {
-      const url = `http://${comfyUIConfig.host}:${comfyUIConfig.port}/system_stats`;
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const comfyUrl = `http://${comfyUIConfig.host}:${comfyUIConfig.port}`;
       
-      const response = await fetch(url, { 
-        method: "GET",
-        signal: controller.signal,
-        mode: "cors"
+      // Use the proxy edge function to check connection
+      const { data, error } = await supabase.functions.invoke('comfyui-proxy', {
+        body: { action: 'system_stats', comfyUrl }
       });
       
-      clearTimeout(timeoutId);
-      const connected = response.ok;
-      setIsComfyUIConnected(connected);
-      return connected;
-    } catch {
+      if (error || data?.error) {
+        console.error('ComfyUI connection check failed:', error || data?.error);
+        setIsComfyUIConnected(false);
+        return false;
+      }
+      
+      setIsComfyUIConnected(true);
+      return true;
+    } catch (err) {
+      console.error('ComfyUI connection check error:', err);
       setIsComfyUIConnected(false);
       return false;
     }

@@ -1,13 +1,10 @@
 import { useState, useCallback } from "react";
 import { useSettings } from "@/contexts/SettingsContext";
+import { supabase } from "@/integrations/supabase/client";
 
 interface ComfyUIWorkflowResult {
   imageUrl: string;
   seed: number;
-}
-
-interface QueueResponse {
-  prompt_id: string;
 }
 
 interface HistoryOutput {
@@ -19,7 +16,6 @@ interface HistoryItem {
 }
 
 // Default FLUX.1 Schnell workflow for ComfyUI
-// This is a minimal workflow that works with the FLUX.1-schnell-gguf model
 const createFluxWorkflow = (prompt: string, seed: number, width: number = 1280, height: number = 720) => ({
   "3": {
     "inputs": {
@@ -164,59 +160,81 @@ const createSDXLWorkflow = (prompt: string, seed: number, width: number = 1280, 
   }
 });
 
+// Helper to call the proxy edge function
+async function callComfyUIProxy(action: string, comfyUrl: string, payload?: object) {
+  const { data, error } = await supabase.functions.invoke('comfyui-proxy', {
+    body: { action, comfyUrl, payload }
+  });
+  
+  if (error) {
+    throw new Error(`Proxy error: ${error.message}`);
+  }
+  
+  if (data?.error) {
+    throw new Error(data.error);
+  }
+  
+  return data;
+}
+
 export function useComfyUI() {
-  const { comfyUIConfig, isComfyUIConnected, checkComfyUIConnection } = useSettings();
+  const { comfyUIConfig, isComfyUIConnected, setIsComfyUIConnected } = useSettings();
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  const getBaseUrl = useCallback(() => {
+  const getComfyUrl = useCallback(() => {
     return `http://${comfyUIConfig.host}:${comfyUIConfig.port}`;
   }, [comfyUIConfig]);
 
-  // Queue a workflow to ComfyUI
-  const queuePrompt = useCallback(async (workflow: object): Promise<string> => {
-    const response = await fetch(`${getBaseUrl()}/prompt`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: workflow }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to queue prompt: ${response.statusText}`);
+  // Check connection via proxy
+  const checkConnection = useCallback(async (): Promise<boolean> => {
+    try {
+      await callComfyUIProxy('system_stats', getComfyUrl());
+      setIsComfyUIConnected(true);
+      return true;
+    } catch (error) {
+      console.error('ComfyUI connection check failed:', error);
+      setIsComfyUIConnected(false);
+      return false;
     }
+  }, [getComfyUrl, setIsComfyUIConnected]);
 
-    const data: QueueResponse = await response.json();
+  // Queue a workflow to ComfyUI via proxy
+  const queuePrompt = useCallback(async (workflow: object): Promise<string> => {
+    const data = await callComfyUIProxy('queue_prompt', getComfyUrl(), { prompt: workflow });
     return data.prompt_id;
-  }, [getBaseUrl]);
+  }, [getComfyUrl]);
 
   // Check if a prompt is still in the queue
   const checkQueue = useCallback(async (promptId: string): Promise<boolean> => {
-    const response = await fetch(`${getBaseUrl()}/queue`);
-    const data = await response.json();
+    const data = await callComfyUIProxy('get_queue', getComfyUrl());
     
-    // Check if prompt is in running or pending queue
     const running = data.queue_running?.some((item: [number, string]) => item[1] === promptId);
     const pending = data.queue_pending?.some((item: [number, string]) => item[1] === promptId);
     
     return running || pending;
-  }, [getBaseUrl]);
+  }, [getComfyUrl]);
 
   // Get the history/output for a completed prompt
   const getHistory = useCallback(async (promptId: string): Promise<HistoryItem | null> => {
-    const response = await fetch(`${getBaseUrl()}/history/${promptId}`);
-    const data = await response.json();
+    const data = await callComfyUIProxy('get_history', getComfyUrl(), { prompt_id: promptId });
     return data[promptId] || null;
-  }, [getBaseUrl]);
+  }, [getComfyUrl]);
 
-  // Get image URL from ComfyUI output
-  const getImageUrl = useCallback((filename: string, subfolder: string = "", type: string = "output"): string => {
-    const params = new URLSearchParams({
-      filename,
-      subfolder,
-      type,
-    });
-    return `${getBaseUrl()}/view?${params.toString()}`;
-  }, [getBaseUrl]);
+  // Get image data via proxy (returns base64)
+  const getImageData = useCallback(async (
+    filename: string, 
+    subfolder: string = "", 
+    type: string = "output"
+  ): Promise<string> => {
+    const data = await callComfyUIProxy('get_image', getComfyUrl(), { filename, subfolder, type });
+    
+    if (data.success && data.imageData) {
+      return data.imageData;
+    }
+    
+    throw new Error('Failed to retrieve image from ComfyUI');
+  }, [getComfyUrl]);
 
   // Poll for completion and return the generated image
   const pollForCompletion = useCallback(async (
@@ -227,33 +245,21 @@ export function useComfyUI() {
     let attempts = 0;
     
     while (attempts < maxAttempts) {
-      // Check if still in queue
       const inQueue = await checkQueue(promptId);
       
       if (!inQueue) {
-        // Check history for results
         const history = await getHistory(promptId);
         
         if (history) {
-          // Find the SaveImage output
           for (const nodeId of Object.keys(history.outputs)) {
             const output = history.outputs[nodeId];
             if (output.images && output.images.length > 0) {
               const image = output.images[0];
-              const imageUrl = getImageUrl(image.filename, image.subfolder, image.type);
-              
-              // Convert to base64 for consistent handling
-              const imageResponse = await fetch(imageUrl);
-              const blob = await imageResponse.blob();
-              const base64 = await new Promise<string>((resolve) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result as string);
-                reader.readAsDataURL(blob);
-              });
+              const imageData = await getImageData(image.filename, image.subfolder, image.type);
               
               return {
-                imageUrl: base64,
-                seed: 0, // Extract from workflow if needed
+                imageUrl: imageData,
+                seed: 0,
               };
             }
           }
@@ -262,7 +268,6 @@ export function useComfyUI() {
         throw new Error("Generation completed but no image found");
       }
       
-      // Update progress
       setProgress(Math.min((attempts / maxAttempts) * 100, 95));
       
       await new Promise(resolve => setTimeout(resolve, interval));
@@ -270,7 +275,7 @@ export function useComfyUI() {
     }
     
     throw new Error("Generation timed out");
-  }, [checkQueue, getHistory, getImageUrl]);
+  }, [checkQueue, getHistory, getImageData]);
 
   // Main function to generate an image
   const generateImage = useCallback(async (
@@ -290,7 +295,7 @@ export function useComfyUI() {
     } = options;
 
     // Check connection first
-    const connected = await checkComfyUIConnection();
+    const connected = await checkConnection();
     if (!connected) {
       throw new Error("ComfyUI is not connected. Please start ComfyUI and check settings.");
     }
@@ -299,16 +304,13 @@ export function useComfyUI() {
     setProgress(0);
 
     try {
-      // Create workflow based on model preference
       const workflow = useFlux 
         ? createFluxWorkflow(prompt, seed, width, height)
         : createSDXLWorkflow(prompt, seed, width, height);
       
-      // Queue the workflow
       setProgress(5);
       const promptId = await queuePrompt(workflow);
       
-      // Poll for completion
       setProgress(10);
       const result = await pollForCompletion(promptId);
       
@@ -317,24 +319,22 @@ export function useComfyUI() {
     } finally {
       setIsGenerating(false);
     }
-  }, [checkComfyUIConnection, queuePrompt, pollForCompletion]);
+  }, [checkConnection, queuePrompt, pollForCompletion]);
 
   // Check system status
   const getSystemStats = useCallback(async () => {
-    const response = await fetch(`${getBaseUrl()}/system_stats`);
-    return response.json();
-  }, [getBaseUrl]);
+    return callComfyUIProxy('system_stats', getComfyUrl());
+  }, [getComfyUrl]);
 
   // Get available models
   const getModels = useCallback(async () => {
     try {
-      const response = await fetch(`${getBaseUrl()}/object_info/CheckpointLoaderSimple`);
-      const data = await response.json();
+      const data = await callComfyUIProxy('get_models', getComfyUrl());
       return data.CheckpointLoaderSimple?.input?.required?.ckpt_name?.[0] || [];
     } catch {
       return [];
     }
-  }, [getBaseUrl]);
+  }, [getComfyUrl]);
 
   return {
     generateImage,
@@ -343,6 +343,6 @@ export function useComfyUI() {
     isGenerating,
     progress,
     isConnected: isComfyUIConnected,
-    checkConnection: checkComfyUIConnection,
+    checkConnection,
   };
 }
