@@ -12,6 +12,13 @@ import {
   DialogTrigger,
   DialogDescription
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { 
   Settings, 
   Cloud, 
@@ -22,7 +29,8 @@ import {
   Loader2,
   ExternalLink,
   Link2,
-  Wand2
+  Wand2,
+  RefreshCw
 } from "lucide-react";
 import { useSettings, InferenceMode } from "@/contexts/SettingsContext";
 import { useComfyUI } from "@/hooks/useComfyUI";
@@ -59,29 +67,55 @@ export function SettingsPanel() {
     comfyUIConfig, 
     setComfyUIConfig,
     isComfyUIConnected,
-    checkComfyUIConnection
+    checkComfyUIConnection,
+    availableCheckpoints,
+    fetchCheckpoints
   } = useSettings();
   
   const { generateImage, isGenerating: isTestGenerating, progress: testProgress } = useComfyUI();
   
   const [open, setOpen] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
+  const [isFetchingModels, setIsFetchingModels] = useState(false);
   const [localBaseUrl, setLocalBaseUrl] = useState(comfyUIConfig.baseUrl);
   const [testImageUrl, setTestImageUrl] = useState<string | null>(null);
+
   // Sync local state when config changes
   useEffect(() => {
     setLocalBaseUrl(comfyUIConfig.baseUrl);
   }, [comfyUIConfig.baseUrl]);
 
-  // Check connection when dialog opens or config changes
+  // Check connection and fetch checkpoints when dialog opens
   useEffect(() => {
     if (open && (inferenceMode === "local" || inferenceMode === "hybrid")) {
-      // Only auto-check if URL looks valid (not the placeholder)
       if (!comfyUIConfig.baseUrl.includes("your-tunnel-url")) {
         handleCheckConnection();
       }
     }
   }, [open, inferenceMode]);
+
+  // Fetch checkpoints when connected
+  useEffect(() => {
+    if (isComfyUIConnected && open) {
+      handleFetchCheckpoints();
+    }
+  }, [isComfyUIConnected, open]);
+
+  const handleFetchCheckpoints = async () => {
+    setIsFetchingModels(true);
+    try {
+      const checkpoints = await fetchCheckpoints();
+      if (checkpoints.length > 0) {
+        toast.success(`Found ${checkpoints.length} checkpoint(s)`);
+      } else {
+        toast.warning("No checkpoints found in ComfyUI");
+      }
+    } catch {
+      toast.error("Failed to fetch checkpoints");
+    } finally {
+      setIsFetchingModels(false);
+    }
+  };
 
   const handleCheckConnection = async () => {
     setIsChecking(true);
@@ -104,8 +138,13 @@ export function SettingsPanel() {
       return;
     }
     
-    setComfyUIConfig({ baseUrl: localBaseUrl });
+    setComfyUIConfig({ ...comfyUIConfig, baseUrl: localBaseUrl });
     toast.success("ComfyUI URL saved");
+  };
+
+  const handleCheckpointChange = (checkpoint: string) => {
+    setComfyUIConfig({ ...comfyUIConfig, selectedCheckpoint: checkpoint });
+    toast.success(`Checkpoint set to ${checkpoint}`);
   };
 
   const handleModeChange = (mode: InferenceMode) => {
@@ -284,6 +323,46 @@ export function SettingsPanel() {
                 Download ngrok
               </Button>
 
+              {/* Checkpoint Selection */}
+              {isComfyUIConnected && (
+                <div className="space-y-2 pt-2 border-t border-border/50">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm font-medium">Checkpoint Model</Label>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleFetchCheckpoints}
+                      disabled={isFetchingModels}
+                      className="h-7 px-2"
+                    >
+                      {isFetchingModels ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <RefreshCw className="w-3 h-3" />
+                      )}
+                    </Button>
+                  </div>
+                  <Select
+                    value={comfyUIConfig.selectedCheckpoint || ""}
+                    onValueChange={handleCheckpointChange}
+                  >
+                    <SelectTrigger className="w-full bg-background">
+                      <SelectValue placeholder="Select a checkpoint..." />
+                    </SelectTrigger>
+                    <SelectContent className="bg-popover border border-border z-50">
+                      {availableCheckpoints.map((checkpoint) => (
+                        <SelectItem key={checkpoint} value={checkpoint}>
+                          {checkpoint}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {availableCheckpoints.length} checkpoint(s) available
+                  </p>
+                </div>
+              )}
+
               {/* Test Generation */}
               {isComfyUIConnected && (
                 <div className="mt-4 pt-4 border-t border-border/50 space-y-3">
@@ -292,7 +371,7 @@ export function SettingsPanel() {
                     variant="neon"
                     size="sm"
                     onClick={handleTestGeneration}
-                    disabled={isTestGenerating}
+                    disabled={isTestGenerating || !comfyUIConfig.selectedCheckpoint}
                     className="w-full"
                   >
                     {isTestGenerating ? (
@@ -307,6 +386,9 @@ export function SettingsPanel() {
                       </>
                     )}
                   </Button>
+                  {!comfyUIConfig.selectedCheckpoint && (
+                    <p className="text-xs text-muted-foreground">Select a checkpoint first</p>
+                  )}
                   {testImageUrl && (
                     <div className="rounded-lg overflow-hidden border border-border/50">
                       <img src={testImageUrl} alt="Test generation" className="w-full h-auto" />
