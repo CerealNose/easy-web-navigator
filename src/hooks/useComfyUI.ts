@@ -241,25 +241,24 @@ export function useComfyUI() {
     setProgress(0);
 
     try {
-      // Resolve checkpoint name against what's actually installed in this ComfyUI instance
-      let resolvedCheckpoint = checkpointName;
-      const available: string[] = await (async () => {
-        try {
-          const data = await callComfyUIProxy('get_models', getComfyUrl());
-          return data.CheckpointLoaderSimple?.input?.required?.ckpt_name?.[0] || [];
-        } catch {
-          return [];
-        }
-      })();
-
+      // Use checkpoint from options, or fall back to settings, or auto-detect
+      let resolvedCheckpoint = checkpointName || comfyUIConfig.selectedCheckpoint;
+      
       if (!resolvedCheckpoint) {
-        resolvedCheckpoint = available[0];
-      } else if (available.length > 0 && !available.includes(resolvedCheckpoint)) {
+        // Auto-detect available checkpoints
+        const available: string[] = await (async () => {
+          try {
+            const data = await callComfyUIProxy('get_models', getComfyUrl());
+            return data.CheckpointLoaderSimple?.input?.required?.ckpt_name?.[0] || [];
+          } catch {
+            return [];
+          }
+        })();
         resolvedCheckpoint = available[0];
       }
 
       if (!resolvedCheckpoint) {
-        throw new Error("No checkpoints found in ComfyUI. Add a model to models/checkpoints and refresh ComfyUI.");
+        throw new Error("No checkpoint selected. Please select a checkpoint in Settings.");
       }
 
       // Use standard workflow with resolved checkpoint
@@ -276,7 +275,7 @@ export function useComfyUI() {
     } finally {
       setIsGenerating(false);
     }
-  }, [checkConnection, getComfyUrl, queuePrompt, pollForCompletion]);
+  }, [checkConnection, getComfyUrl, comfyUIConfig.selectedCheckpoint, queuePrompt, pollForCompletion]);
 
   // Check system status
   const getSystemStats = useCallback(async () => {

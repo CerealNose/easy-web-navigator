@@ -5,6 +5,7 @@ export type InferenceMode = "cloud" | "hybrid" | "local";
 
 interface ComfyUIConfig {
   baseUrl: string;
+  selectedCheckpoint: string | null;
 }
 
 interface SettingsContextType {
@@ -15,10 +16,14 @@ interface SettingsContextType {
   isComfyUIConnected: boolean;
   setIsComfyUIConnected: (connected: boolean) => void;
   checkComfyUIConnection: () => Promise<boolean>;
+  availableCheckpoints: string[];
+  setAvailableCheckpoints: (checkpoints: string[]) => void;
+  fetchCheckpoints: () => Promise<string[]>;
 }
 
 const defaultComfyUIConfig: ComfyUIConfig = {
   baseUrl: "https://your-tunnel-url.ngrok.io",
+  selectedCheckpoint: null,
 };
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
@@ -29,8 +34,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [inferenceMode, setInferenceModeState] = useState<InferenceMode>("cloud");
   const [comfyUIConfig, setComfyUIConfigState] = useState<ComfyUIConfig>(defaultComfyUIConfig);
   const [isComfyUIConnected, setIsComfyUIConnected] = useState(false);
+  const [availableCheckpoints, setAvailableCheckpoints] = useState<string[]>([]);
 
-  // Load settings from localStorage on mount - migrate old host/port configs
+  // Load settings from localStorage on mount - migrate old configs
   useEffect(() => {
     try {
       const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
@@ -42,16 +48,17 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
           const config = parsed.comfyUIConfig;
           // Migrate old host/port format to baseUrl
           if (config.host !== undefined && config.port !== undefined) {
-            const migratedUrl = `http://${config.host}:${config.port}`;
-            console.log("Migrating ComfyUI config from host/port to baseUrl:", migratedUrl);
-            const newConfig = { baseUrl: defaultComfyUIConfig.baseUrl };
+            const newConfig = { ...defaultComfyUIConfig };
             setComfyUIConfigState(newConfig);
             localStorage.setItem(
               SETTINGS_STORAGE_KEY,
               JSON.stringify({ inferenceMode: parsed.inferenceMode || "cloud", comfyUIConfig: newConfig })
             );
           } else if (config.baseUrl) {
-            setComfyUIConfigState(config);
+            setComfyUIConfigState({
+              baseUrl: config.baseUrl,
+              selectedCheckpoint: config.selectedCheckpoint || null,
+            });
           }
         }
       }
@@ -84,7 +91,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   const checkComfyUIConnection = async (): Promise<boolean> => {
     try {
-      // Normalize URL: remove trailing slash
       const comfyUrl = comfyUIConfig.baseUrl.replace(/\/$/, "");
       
       const { data, error } = await supabase.functions.invoke("comfyui-proxy", {
@@ -106,6 +112,34 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const fetchCheckpoints = async (): Promise<string[]> => {
+    try {
+      const comfyUrl = comfyUIConfig.baseUrl.replace(/\/$/, "");
+      
+      const { data, error } = await supabase.functions.invoke("comfyui-proxy", {
+        body: { action: "get_models", comfyUrl },
+      });
+
+      if (error || data?.error) {
+        console.error("Failed to fetch checkpoints:", error || data?.error);
+        return [];
+      }
+
+      const checkpoints: string[] = data.CheckpointLoaderSimple?.input?.required?.ckpt_name?.[0] || [];
+      setAvailableCheckpoints(checkpoints);
+      
+      // Auto-select first checkpoint if none selected
+      if (checkpoints.length > 0 && !comfyUIConfig.selectedCheckpoint) {
+        setComfyUIConfig({ ...comfyUIConfig, selectedCheckpoint: checkpoints[0] });
+      }
+      
+      return checkpoints;
+    } catch (err) {
+      console.error("Fetch checkpoints error:", err);
+      return [];
+    }
+  };
+
   return (
     <SettingsContext.Provider
       value={{
@@ -116,6 +150,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         isComfyUIConnected,
         setIsComfyUIConnected,
         checkComfyUIConnection,
+        availableCheckpoints,
+        setAvailableCheckpoints,
+        fetchCheckpoints,
       }}
     >
       {children}
