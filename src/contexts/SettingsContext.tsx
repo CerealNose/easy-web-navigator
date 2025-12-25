@@ -32,14 +32,29 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [comfyUIConfig, setComfyUIConfigState] = useState<ComfyUIConfig>(defaultComfyUIConfig);
   const [isComfyUIConnected, setIsComfyUIConnected] = useState(false);
 
-  // Load settings from localStorage on mount
+  // Load settings from localStorage on mount - migrate stale localhost configs
   useEffect(() => {
     try {
       const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored);
         if (parsed.inferenceMode) setInferenceModeState(parsed.inferenceMode);
-        if (parsed.comfyUIConfig) setComfyUIConfigState(parsed.comfyUIConfig);
+        
+        // Migrate stale localhost config to the new default IP
+        if (parsed.comfyUIConfig) {
+          const config = parsed.comfyUIConfig;
+          if (config.host === "localhost" || config.host === "127.0.0.1") {
+            // Update to the new default and save
+            console.log("Migrating ComfyUI config from localhost to", defaultComfyUIConfig.host);
+            setComfyUIConfigState(defaultComfyUIConfig);
+            localStorage.setItem(
+              SETTINGS_STORAGE_KEY,
+              JSON.stringify({ inferenceMode: parsed.inferenceMode || "cloud", comfyUIConfig: defaultComfyUIConfig })
+            );
+          } else {
+            setComfyUIConfigState(config);
+          }
+        }
       }
     } catch (e) {
       console.error("Failed to load settings:", e);
