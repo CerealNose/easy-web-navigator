@@ -123,9 +123,8 @@ export function SettingsPanel() {
       setTestImageUrl(null);
       toast.info("Starting test generation...");
       const result = await generateImage("A beautiful sunset over mountains, cinematic, 4k, highly detailed", {
-        width: 1280,
-        height: 720,
-        useFlux: true
+        width: 1024,
+        height: 1024
       });
       setTestImageUrl(result.imageUrl);
       toast.success(`Test image generated! Seed: ${result.seed}`);

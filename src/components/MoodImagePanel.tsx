@@ -65,8 +65,8 @@ export function MoodImagePanel({ prompt, themes, onPromptChange }: MoodImagePane
         // Use local ComfyUI
         toast.info("Generating with local ComfyUI...");
         const result = await generateLocalImage(prompt.trim(), {
-          width: 1280,
-          height: 720,
+          width: 1024,
+          height: 1024,
         });
         setGeneratedImage(result.imageUrl);
         toast.success(`Image generated locally! (seed: ${result.seed})`);
