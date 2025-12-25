@@ -228,7 +228,7 @@ export function useComfyUI() {
       seed = Math.floor(Math.random() * 2147483647),
       width = 1024,
       height = 1024,
-      checkpointName = "sd_xl_base_1.0.safetensors"
+      checkpointName,
     } = options;
 
     // Check connection first
@@ -241,21 +241,42 @@ export function useComfyUI() {
     setProgress(0);
 
     try {
-      // Use standard workflow with the specified checkpoint
-      const workflow = createWorkflowWithCheckpoint(prompt, seed, width, height, checkpointName);
-      
+      // Resolve checkpoint name against what's actually installed in this ComfyUI instance
+      let resolvedCheckpoint = checkpointName;
+      const available: string[] = await (async () => {
+        try {
+          const data = await callComfyUIProxy('get_models', getComfyUrl());
+          return data.CheckpointLoaderSimple?.input?.required?.ckpt_name?.[0] || [];
+        } catch {
+          return [];
+        }
+      })();
+
+      if (!resolvedCheckpoint) {
+        resolvedCheckpoint = available[0];
+      } else if (available.length > 0 && !available.includes(resolvedCheckpoint)) {
+        resolvedCheckpoint = available[0];
+      }
+
+      if (!resolvedCheckpoint) {
+        throw new Error("No checkpoints found in ComfyUI. Add a model to models/checkpoints and refresh ComfyUI.");
+      }
+
+      // Use standard workflow with resolved checkpoint
+      const workflow = createWorkflowWithCheckpoint(prompt, seed, width, height, resolvedCheckpoint);
+
       setProgress(5);
       const promptId = await queuePrompt(workflow);
-      
+
       setProgress(10);
       const result = await pollForCompletion(promptId);
-      
+
       setProgress(100);
       return { ...result, seed };
     } finally {
       setIsGenerating(false);
     }
-  }, [checkConnection, queuePrompt, pollForCompletion]);
+  }, [checkConnection, getComfyUrl, queuePrompt, pollForCompletion]);
 
   // Check system status
   const getSystemStats = useCallback(async () => {
