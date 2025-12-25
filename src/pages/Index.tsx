@@ -5,6 +5,7 @@ import { MoodImagePanel } from "@/components/MoodImagePanel";
 import { TimestampPanel } from "@/components/TimestampPanel";
 import { GenVidPanel } from "@/components/GenVidPanel";
 import { RetrievePanel } from "@/components/RetrievePanel";
+import { SettingsPanel } from "@/components/SettingsPanel";
 import { Film, Github, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -83,6 +84,7 @@ const Index = () => {
           </div>
 
           <div className="flex items-center gap-2">
+            <SettingsPanel />
             <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
               <Github className="w-5 h-5" />
             </Button>
