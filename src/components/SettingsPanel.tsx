@@ -21,9 +21,11 @@ import {
   XCircle, 
   Loader2,
   ExternalLink,
-  Link2
+  Link2,
+  Wand2
 } from "lucide-react";
 import { useSettings, InferenceMode } from "@/contexts/SettingsContext";
+import { useComfyUI } from "@/hooks/useComfyUI";
 import { toast } from "sonner";
 
 const MODE_INFO = {
@@ -60,10 +62,12 @@ export function SettingsPanel() {
     checkComfyUIConnection
   } = useSettings();
   
+  const { generateImage, isGenerating: isTestGenerating, progress: testProgress } = useComfyUI();
+  
   const [open, setOpen] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
   const [localBaseUrl, setLocalBaseUrl] = useState(comfyUIConfig.baseUrl);
-
+  const [testImageUrl, setTestImageUrl] = useState<string | null>(null);
   // Sync local state when config changes
   useEffect(() => {
     setLocalBaseUrl(comfyUIConfig.baseUrl);
@@ -111,6 +115,22 @@ export function SettingsPanel() {
       toast.info("Make sure to set up a tunnel to your ComfyUI instance");
     } else {
       toast.success("Switched to cloud mode");
+    }
+  };
+
+  const handleTestGeneration = async () => {
+    try {
+      setTestImageUrl(null);
+      toast.info("Starting test generation...");
+      const result = await generateImage("A beautiful sunset over mountains, cinematic, 4k, highly detailed", {
+        width: 1280,
+        height: 720,
+        useFlux: true
+      });
+      setTestImageUrl(result.imageUrl);
+      toast.success(`Test image generated! Seed: ${result.seed}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Test generation failed");
     }
   };
 
@@ -264,6 +284,37 @@ export function SettingsPanel() {
                 <ExternalLink className="w-3 h-3 mr-1" />
                 Download ngrok
               </Button>
+
+              {/* Test Generation */}
+              {isComfyUIConnected && (
+                <div className="mt-4 pt-4 border-t border-border/50 space-y-3">
+                  <Label className="text-sm font-medium">Test Image Generation</Label>
+                  <Button
+                    variant="neon"
+                    size="sm"
+                    onClick={handleTestGeneration}
+                    disabled={isTestGenerating}
+                    className="w-full"
+                  >
+                    {isTestGenerating ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                        Generating... {testProgress > 0 ? `(${Math.round(testProgress)}%)` : ""}
+                      </>
+                    ) : (
+                      <>
+                        <Wand2 className="w-4 h-4 mr-2" />
+                        Generate Test Image
+                      </>
+                    )}
+                  </Button>
+                  {testImageUrl && (
+                    <div className="rounded-lg overflow-hidden border border-border/50">
+                      <img src={testImageUrl} alt="Test generation" className="w-full h-auto" />
+                    </div>
+                  )}
+                </div>
+              )}
             </Card>
           )}
 
