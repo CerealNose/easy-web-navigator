@@ -18,7 +18,7 @@ interface SettingsContextType {
 }
 
 const defaultComfyUIConfig: ComfyUIConfig = {
-  host: "localhost",
+  host: "192.168.68.113",
   port: 8188,
 };
 
