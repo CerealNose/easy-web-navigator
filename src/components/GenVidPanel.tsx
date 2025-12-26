@@ -1582,18 +1582,18 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
               toast.info(`Scene ${i + 1}: Generating video locally (ComfyUI AnimateDiff)...`, { duration: 8000 });
 
               // Local duration is controlled by frames / frameRate (NOT a separate "seconds" param)
+              // AnimateDiff v3 (v3_sd15_mm.ckpt) has a hard 32-frame limit without context windows
               const targetSeconds = Math.min(sceneList[i].duration, 10);
               const localFps = Math.max(1, Math.min(videoSettings.frameRate ?? 6, 60));
 
-              // Safety cap to avoid accidental OOM on consumer GPUs
-              const maxLocalFrames = 120;
+              const maxLocalFrames = 32; // AnimateDiff v3 hard limit
               const requestedFrames = Math.max(8, Math.round(targetSeconds * localFps));
               const localFrames = Math.min(maxLocalFrames, requestedFrames);
 
               if (localFrames !== requestedFrames) {
                 const cappedSeconds = (localFrames / localFps).toFixed(1);
                 toast.warning(
-                  `Scene ${i + 1}: Capped to ${localFrames} frames (~${cappedSeconds}s) to avoid VRAM spikes.`,
+                  `Scene ${i + 1}: AnimateDiff max 32 frames → ~${cappedSeconds}s at ${localFps}fps`,
                   { duration: 8000 }
                 );
               }
