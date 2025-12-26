@@ -45,6 +45,7 @@ export function SceneEditor({
 }: SceneEditorProps) {
   const [expandedScene, setExpandedScene] = useState<number | null>(null);
   const [analyzingScene, setAnalyzingScene] = useState<number | null>(null);
+  const [isAnalyzingAll, setIsAnalyzingAll] = useState(false);
   const fileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   // Convert file to base64 for API
@@ -106,6 +107,72 @@ export function SceneEditor({
     }
   };
 
+  // Analyze all scenes with uploaded images
+  const handleAnalyzeAllImages = async () => {
+    const scenesWithImages = scenes
+      .map((scene, index) => ({ scene, index }))
+      .filter(({ scene }) => scene.uploadedImage);
+    
+    if (scenesWithImages.length === 0) {
+      toast.error("No images to analyze. Please upload images first.");
+      return;
+    }
+
+    setIsAnalyzingAll(true);
+    toast.info(`Analyzing ${scenesWithImages.length} images...`);
+    
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const { scene, index } of scenesWithImages) {
+      try {
+        setAnalyzingScene(index);
+        const base64 = await fileToBase64(scene.uploadedImage!.file);
+        
+        // Call analyze-image-style to get visual description
+        const styleRes = await supabase.functions.invoke("analyze-image-style", {
+          body: { imageBase64: base64 }
+        });
+        
+        if (styleRes.error) throw styleRes.error;
+        
+        const styleDescription = styleRes.data?.styleDescription || "";
+        
+        // Generate a scene prompt based on the image
+        const promptRes = await supabase.functions.invoke("generate-video-prompt", {
+          body: {
+            imageBase64: base64,
+            lyricContext: scene.lyrics,
+            motionHint: "slow camera movement, smooth pan, atmospheric"
+          }
+        });
+        
+        if (promptRes.error) throw promptRes.error;
+        
+        const videoPrompt = promptRes.data?.videoPrompt || "";
+        
+        const combinedPrompt = videoPrompt 
+          ? `${styleDescription}, ${videoPrompt}`
+          : styleDescription;
+        
+        updateScene(index, { prompt: combinedPrompt });
+        successCount++;
+      } catch (error) {
+        console.error(`Scene ${index + 1} analysis failed:`, error);
+        errorCount++;
+      }
+    }
+
+    setAnalyzingScene(null);
+    setIsAnalyzingAll(false);
+    
+    if (errorCount === 0) {
+      toast.success(`Analyzed ${successCount} images successfully`);
+    } else {
+      toast.warning(`Analyzed ${successCount} images, ${errorCount} failed`);
+    }
+  };
+
   const updateScene = (index: number, updates: Partial<EditableScene>) => {
     const newScenes = scenes.map((scene, i) => 
       i === index ? { ...scene, ...updates } : scene
@@ -149,6 +216,8 @@ export function SceneEditor({
     return null;
   }
 
+  const imagesCount = scenes.filter(s => s.uploadedImage).length;
+
   return (
     <Card className="p-6 glass-card border-border/50">
       <div className="flex items-center justify-between mb-4">
@@ -156,8 +225,26 @@ export function SceneEditor({
           <Edit3 className="w-5 h-5 text-primary" />
           <h3 className="font-semibold">Edit Scenes Before Generating</h3>
         </div>
-        <div className="text-sm text-muted-foreground">
-          {scenes.filter(s => s.uploadedImage).length}/{scenes.length} images added
+        <div className="flex items-center gap-3">
+          {imagesCount > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleAnalyzeAllImages}
+              disabled={isAnalyzingAll}
+              className="h-8 text-xs"
+            >
+              {isAnalyzingAll ? (
+                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+              ) : (
+                <Eye className="w-3 h-3 mr-1" />
+              )}
+              {isAnalyzingAll ? `Analyzing...` : `Analyze All (${imagesCount})`}
+            </Button>
+          )}
+          <div className="text-sm text-muted-foreground">
+            {imagesCount}/{scenes.length} images
+          </div>
         </div>
       </div>
 
