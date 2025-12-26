@@ -243,7 +243,7 @@ export function SimpleVideoPanel() {
         <label className="flex-1">
           <input
             type="file"
-            accept="image/*"
+            accept="image/*,video/*"
             multiple
             onChange={handleImageUpload}
             className="hidden"
