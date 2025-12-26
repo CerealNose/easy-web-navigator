@@ -4,6 +4,7 @@ import { LyricsAnalyzer } from "@/components/LyricsAnalyzer";
 import { MoodImagePanel } from "@/components/MoodImagePanel";
 import { TimestampPanel } from "@/components/TimestampPanel";
 import { GenVidPanel } from "@/components/GenVidPanel";
+import { SimpleVideoPanel } from "@/components/SimpleVideoPanel";
 import { RetrievePanel } from "@/components/RetrievePanel";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { Film, Github, Sparkles } from "lucide-react";
@@ -134,6 +135,9 @@ const Index = () => {
                 sections={sections} 
                 onTimestampsGenerated={handleTimestampsGenerated}
               />
+            )}
+            {activeTab === "simple" && (
+              <SimpleVideoPanel />
             )}
             {activeTab === "genvid" && (
               <GenVidPanel sections={sections} timestamps={timestamps} moodPrompt={moodPrompt} sectionPrompts={sectionPrompts} storyline={storyline} />
