@@ -222,7 +222,7 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
   // Manual duration mode for uploaded images
   const [useManualDuration, setUseManualDuration] = useState(false);
   const [manualTotalDuration, setManualTotalDuration] = useState(240); // 4 minutes default
-  const [manualSceneDuration, setManualSceneDuration] = useState(10); // 10 seconds per scene
+  const [manualSceneDuration, setManualSceneDuration] = useState(30); // 30 seconds per scene (auto-splits if > max clip length)
   
   // Quick target generation state
   const [isGeneratingQuickTarget, setIsGeneratingQuickTarget] = useState(false);
