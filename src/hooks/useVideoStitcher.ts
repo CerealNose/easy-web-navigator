@@ -54,9 +54,14 @@ export function useVideoStitcher() {
     options: {
       outputFilename?: string;
       onProgress?: (progress: StitchProgress) => void;
+      transitionDuration?: number; // Duration of crossfade in seconds
     } = {}
   ): Promise<{ blob: Blob; url: string }> => {
-    const { outputFilename = 'stitched_video.mp4', onProgress } = options;
+    const { 
+      outputFilename = 'stitched_video.mp4', 
+      onProgress,
+      transitionDuration = 0.5 // Default 0.5 second crossfade
+    } = options;
 
     if (videoUrls.length === 0) {
       throw new Error('No video URLs provided');
@@ -92,27 +97,55 @@ export function useVideoStitcher() {
         await ffmpeg.writeFile(filename, videoData);
       }
 
-      // Create concat file list
-      const concatList = inputFiles.map(f => `file '${f}'`).join('\n');
-      await ffmpeg.writeFile('concat.txt', concatList);
+      setProgress({ stage: 'stitching', percent: 0, message: 'Adding crossfade transitions...' });
+      onProgress?.({ stage: 'stitching', percent: 0, message: 'Adding crossfade transitions...' });
 
-      setProgress({ stage: 'stitching', percent: 0, message: 'Stitching clips...' });
-      onProgress?.({ stage: 'stitching', percent: 0, message: 'Stitching clips...' });
+      // Build xfade filter chain for smooth transitions between clips
+      // xfade requires re-encoding but creates smooth morphing transitions
+      const inputs = inputFiles.map((f, i) => ['-i', f]).flat();
+      
+      // Build complex filter graph for xfade transitions
+      // Each xfade takes 2 inputs and outputs 1, chained together
+      let filterComplex = '';
+      let lastOutput = '[0:v]';
+      
+      for (let i = 1; i < inputFiles.length; i++) {
+        const output = i === inputFiles.length - 1 ? '[outv]' : `[v${i}]`;
+        // Use dissolve transition for smooth morphing effect
+        filterComplex += `${lastOutput}[${i}:v]xfade=transition=dissolve:duration=${transitionDuration}:offset=${i * 5 - transitionDuration}${output}`;
+        if (i < inputFiles.length - 1) filterComplex += ';';
+        lastOutput = output;
+      }
 
-      // Concatenate videos using concat demuxer (fast, no re-encoding if formats match)
+      // Also handle audio with acrossfade
+      let audioFilter = '';
+      let lastAudioOutput = '[0:a]';
+      
+      for (let i = 1; i < inputFiles.length; i++) {
+        const output = i === inputFiles.length - 1 ? '[outa]' : `[a${i}]`;
+        audioFilter += `${lastAudioOutput}[${i}:a]acrossfade=d=${transitionDuration}${output}`;
+        if (i < inputFiles.length - 1) audioFilter += ';';
+        lastAudioOutput = output;
+      }
+
+      const fullFilter = audioFilter ? `${filterComplex};${audioFilter}` : filterComplex;
+      const mapArgs = audioFilter ? ['-map', '[outv]', '-map', '[outa]'] : ['-map', '[outv]'];
+
       await ffmpeg.exec([
-        '-f', 'concat',
-        '-safe', '0',
-        '-i', 'concat.txt',
-        '-c', 'copy', // Copy streams without re-encoding (fast)
-        '-movflags', '+faststart', // Optimize for web playback
+        ...inputs,
+        '-filter_complex', fullFilter,
+        ...mapArgs,
+        '-c:v', 'libx264',
+        '-preset', 'fast',
+        '-crf', '23',
+        '-c:a', 'aac',
+        '-movflags', '+faststart',
         outputFilename,
       ]);
 
       // Read the output file
       const data = await ffmpeg.readFile(outputFilename);
       const uint8Array = data instanceof Uint8Array ? data : new TextEncoder().encode(data as string);
-      // Create a new ArrayBuffer copy to avoid SharedArrayBuffer issues
       const arrayBuffer = new ArrayBuffer(uint8Array.byteLength);
       new Uint8Array(arrayBuffer).set(uint8Array);
       const blob = new Blob([arrayBuffer], { type: 'video/mp4' });
@@ -122,7 +155,6 @@ export function useVideoStitcher() {
       for (const file of inputFiles) {
         await ffmpeg.deleteFile(file);
       }
-      await ffmpeg.deleteFile('concat.txt');
       await ffmpeg.deleteFile(outputFilename);
 
       const completeProgress = { stage: 'complete' as const, percent: 100, message: 'Stitching complete!' };
