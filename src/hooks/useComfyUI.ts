@@ -110,7 +110,8 @@ const createAnimateDiffI2VWorkflow = (
   motionPrompt: string,
   seed: number,
   frames: number = 16,
-  hasVHS: boolean = false
+  hasVHS: boolean = false,
+  checkpointName: string = "dreamshaperXL_lightningDPMSDE.safetensors"
 ) => {
   const baseWorkflow: Record<string, object> = {
     "1": {
@@ -122,7 +123,7 @@ const createAnimateDiffI2VWorkflow = (
     },
     "2": {
       "inputs": {
-        "ckpt_name": "sd15_animatediff.safetensors"
+        "ckpt_name": checkpointName
       },
       "class_type": "CheckpointLoaderSimple",
       "_meta": { "title": "Load Checkpoint" }
@@ -169,7 +170,7 @@ const createAnimateDiffI2VWorkflow = (
     "8": {
       "inputs": {
         "samples": ["7", 0],
-        "batch_size": frames
+        "amount": frames
       },
       "class_type": "RepeatLatentBatch",
       "_meta": { "title": "Repeat Latent Batch" }
@@ -498,6 +499,16 @@ export function useComfyUI() {
     return data.name || filename;
   }, [getComfyUrl]);
 
+  // Get available models - must be before generateVideo since it uses this
+  const getModels = useCallback(async () => {
+    try {
+      const data = await callComfyUIProxy('get_models', getComfyUrl());
+      return data.CheckpointLoaderSimple?.input?.required?.ckpt_name?.[0] || [];
+    } catch {
+      return [];
+    }
+  }, [getComfyUrl]);
+
   // Generate video from image using AnimateDiff
   const generateVideo = useCallback(async (
     imageUrl: string,
@@ -534,13 +545,21 @@ export function useComfyUI() {
     setVideoProgress(0);
 
     try {
+      // Get available checkpoints and use the first one
+      const availableCheckpoints = await getModels();
+      const checkpoint = availableCheckpoints[0] || comfyUIConfig.selectedCheckpoint;
+      
+      if (!checkpoint) {
+        throw new Error("No checkpoint available. Please configure a checkpoint in ComfyUI.");
+      }
+      
       // Upload the image to ComfyUI first
       setVideoProgress(2);
       const uploadFilename = `input_${Date.now()}.png`;
       const uploadedName = await uploadImage(imageUrl, uploadFilename);
       
-      // Create AnimateDiff workflow with uploaded image filename
-      const workflow = createAnimateDiffI2VWorkflow(uploadedName, motionPrompt, seed, frames, hasVHS);
+      // Create AnimateDiff workflow with uploaded image filename and correct checkpoint
+      const workflow = createAnimateDiffI2VWorkflow(uploadedName, motionPrompt, seed, frames, hasVHS, checkpoint);
 
       setVideoProgress(5);
       const promptId = await queuePrompt(workflow);
@@ -553,23 +572,12 @@ export function useComfyUI() {
     } finally {
       setIsGeneratingVideo(false);
     }
-  }, [checkConnection, checkAnimateDiffAvailable, checkVHSAvailable, uploadImage, queuePrompt, pollForVideoCompletion]);
+  }, [checkConnection, checkAnimateDiffAvailable, checkVHSAvailable, uploadImage, queuePrompt, pollForVideoCompletion, getModels, comfyUIConfig.selectedCheckpoint]);
 
   // Check system status
   const getSystemStats = useCallback(async () => {
     return callComfyUIProxy('system_stats', getComfyUrl());
   }, [getComfyUrl]);
-
-  // Get available models
-  const getModels = useCallback(async () => {
-    try {
-      const data = await callComfyUIProxy('get_models', getComfyUrl());
-      return data.CheckpointLoaderSimple?.input?.required?.ckpt_name?.[0] || [];
-    } catch {
-      return [];
-    }
-  }, [getComfyUrl]);
-
   return {
     generateImage,
     generateVideo,
