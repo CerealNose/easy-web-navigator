@@ -384,7 +384,7 @@ export function useComfyUI() {
   // Poll for video completion
   const pollForVideoCompletion = useCallback(async (
     promptId: string,
-    maxAttempts: number = 300, // Video takes longer
+    maxAttempts: number = 600, // Video takes much longer - 20 min timeout (600 * 2s)
     interval: number = 2000
   ): Promise<ComfyUIVideoResult> => {
     let attempts = 0;
