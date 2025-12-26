@@ -262,12 +262,25 @@ async function callComfyUIProxy(action: string, comfyUrl: string, payload?: obje
   return data;
 }
 
+export interface VideoProgressInfo {
+  progress: number; // 0-100
+  elapsedSeconds: number;
+  estimatedTotalSeconds: number | null;
+  estimatedRemainingSeconds: number | null;
+}
+
 export function useComfyUI() {
   const { comfyUIConfig, isComfyUIConnected, setIsComfyUIConnected, videoSettings } = useSettings();
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [progress, setProgress] = useState(0);
   const [videoProgress, setVideoProgress] = useState(0);
+  const [videoProgressInfo, setVideoProgressInfo] = useState<VideoProgressInfo>({
+    progress: 0,
+    elapsedSeconds: 0,
+    estimatedTotalSeconds: null,
+    estimatedRemainingSeconds: null,
+  });
 
   const getComfyUrl = useCallback(() => {
     // Normalize: remove trailing slash
@@ -387,6 +400,17 @@ export function useComfyUI() {
     interval: number = 2000
   ): Promise<ComfyUIVideoResult> => {
     let pollCount = 0;
+    const startTime = Date.now();
+    let lastProgress = 0;
+    let progressHistory: { time: number; progress: number }[] = [];
+    
+    // Reset progress info at start
+    setVideoProgressInfo({
+      progress: 0,
+      elapsedSeconds: 0,
+      estimatedTotalSeconds: null,
+      estimatedRemainingSeconds: null,
+    });
     
     while (true) {
       const inQueue = await checkQueue(promptId);
@@ -394,6 +418,15 @@ export function useComfyUI() {
       if (!inQueue) {
         const history = await getHistory(promptId);
         console.log("Video generation history:", JSON.stringify(history, null, 2));
+        
+        // Set complete progress
+        const finalElapsed = Math.floor((Date.now() - startTime) / 1000);
+        setVideoProgressInfo({
+          progress: 100,
+          elapsedSeconds: finalElapsed,
+          estimatedTotalSeconds: finalElapsed,
+          estimatedRemainingSeconds: 0,
+        });
         
         if (history) {
           for (const nodeId of Object.keys(history.outputs)) {
@@ -445,11 +478,36 @@ export function useComfyUI() {
         throw new Error("Video generation completed but no video found. Make sure AnimateDiff and VHS nodes are installed.");
       }
       
-      // Show elapsed time in progress (pulse between 10-90% to indicate ongoing work)
+      // Calculate elapsed time and estimate remaining
       pollCount++;
-      const elapsed = Math.floor((pollCount * interval) / 1000);
-      console.log(`Video generation in progress... ${elapsed}s elapsed`);
-      setVideoProgress(10 + (Math.sin(pollCount * 0.2) + 1) * 40); // Pulses 10-90%
+      const elapsedMs = Date.now() - startTime;
+      const elapsedSeconds = Math.floor(elapsedMs / 1000);
+      
+      // Use a heuristic for progress since ComfyUI queue doesn't give detailed progress
+      // Assume ~15-20 min average, adjust based on observed completion times
+      const estimatedTotalSeconds = 18 * 60; // 18 minutes average
+      const estimatedProgress = Math.min(95, (elapsedSeconds / estimatedTotalSeconds) * 100);
+      
+      // Track progress history for smoother ETA calculation
+      progressHistory.push({ time: elapsedSeconds, progress: estimatedProgress });
+      if (progressHistory.length > 10) progressHistory.shift(); // Keep last 10 samples
+      
+      // Calculate ETA based on linear progression
+      let estimatedRemainingSeconds: number | null = null;
+      if (estimatedProgress > 5 && estimatedProgress < 95) {
+        // Linear estimate: remaining = elapsed * (remaining% / completed%)
+        estimatedRemainingSeconds = Math.round(elapsedSeconds * ((100 - estimatedProgress) / estimatedProgress));
+      }
+      
+      setVideoProgress(estimatedProgress);
+      setVideoProgressInfo({
+        progress: estimatedProgress,
+        elapsedSeconds,
+        estimatedTotalSeconds,
+        estimatedRemainingSeconds,
+      });
+      
+      console.log(`Video generation: ${elapsedSeconds}s elapsed, ~${estimatedRemainingSeconds ? Math.round(estimatedRemainingSeconds / 60) + ' min' : '?'} remaining`);
       
       await new Promise(resolve => setTimeout(resolve, interval));
     }
@@ -655,6 +713,7 @@ export function useComfyUI() {
     isGeneratingVideo,
     progress,
     videoProgress,
+    videoProgressInfo,
     isConnected: isComfyUIConnected,
     checkConnection,
   };
