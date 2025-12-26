@@ -95,6 +95,26 @@ serve(async (req) => {
         });
         break;
 
+      case 'upload_image':
+        // Upload a base64 image to ComfyUI
+        const { imageData, filename: uploadFilename } = payload as { imageData: string; filename: string };
+        
+        // Convert base64 to blob
+        const base64Data = imageData.replace(/^data:image\/\w+;base64,/, '');
+        const binaryData = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+        
+        // Create form data
+        const formData = new FormData();
+        const blob = new Blob([binaryData], { type: 'image/png' });
+        formData.append('image', blob, uploadFilename);
+        formData.append('overwrite', 'true');
+        
+        response = await fetch(`${comfyUrl}/upload/image`, {
+          method: 'POST',
+          body: formData,
+        });
+        break;
+
       default:
         return new Response(
           JSON.stringify({ error: `Unknown action: ${action}` }),
