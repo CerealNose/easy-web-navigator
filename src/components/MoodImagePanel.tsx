@@ -139,9 +139,7 @@ export function MoodImagePanel({ prompt, themes, onPromptChange }: MoodImagePane
         // Try local ComfyUI with AnimateDiff
         try {
           toast.info("Generating video with local ComfyUI (AnimateDiff)...");
-          const result = await generateLocalVideo(generatedImage, videoPrompt, {
-            frames: 16,
-          });
+          const result = await generateLocalVideo(generatedImage, videoPrompt);
           setGeneratedVideo(result.videoUrl);
           toast.success(`Video generated locally! (seed: ${result.seed})`);
           return;
