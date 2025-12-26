@@ -19,7 +19,7 @@ interface HistoryItem {
 }
 
 // WAN 2.1 Image-to-Video workflow for ComfyUI
-// This uses native ComfyUI nodes from Comfy-Org's WAN implementation
+// This uses the official Comfy-Org native workflow structure
 const createWanI2VWorkflow = (
   uploadedImageName: string,
   prompt: string,
@@ -38,7 +38,7 @@ const createWanI2VWorkflow = (
         unet_name: diffusionModel
       },
       class_type: "UNETLoader",
-      _meta: { title: "Load WAN Diffusion Model" }
+      _meta: { title: "Load Diffusion Model" }
     },
     // Load VAE
     "2": {
@@ -46,7 +46,7 @@ const createWanI2VWorkflow = (
         vae_name: "wan_2.1_vae.safetensors"
       },
       class_type: "VAELoader",
-      _meta: { title: "Load WAN VAE" }
+      _meta: { title: "Load VAE" }
     },
     // Load CLIP Vision for image conditioning
     "3": {
@@ -56,14 +56,14 @@ const createWanI2VWorkflow = (
       class_type: "CLIPVisionLoader",
       _meta: { title: "Load CLIP Vision" }
     },
-    // Load text encoder
+    // Load text encoder (CLIP)
     "4": {
       inputs: {
         clip_name: "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
         type: "wan"
       },
       class_type: "CLIPLoader",
-      _meta: { title: "Load Text Encoder" }
+      _meta: { title: "Load CLIP" }
     },
     // Load input image
     "5": {
@@ -71,7 +71,7 @@ const createWanI2VWorkflow = (
         image: uploadedImageName
       },
       class_type: "LoadImage",
-      _meta: { title: "Load Input Image" }
+      _meta: { title: "Load Image" }
     },
     // Encode image with CLIP Vision
     "6": {
@@ -82,48 +82,39 @@ const createWanI2VWorkflow = (
       class_type: "CLIPVisionEncode",
       _meta: { title: "CLIP Vision Encode" }
     },
-    // Create empty latent video
-    "7": {
-      inputs: {
-        width: width,
-        height: height,
-        length: frames,
-        batch_size: 1
-      },
-      class_type: "EmptyWanLatentVideo",
-      _meta: { title: "Empty WAN Latent" }
-    },
     // Encode positive prompt
-    "8": {
+    "7": {
       inputs: {
         text: prompt,
         clip: ["4", 0]
       },
       class_type: "CLIPTextEncode",
-      _meta: { title: "Positive Prompt" }
+      _meta: { title: "CLIP Text Encode (Positive)" }
     },
     // Encode negative prompt
-    "9": {
+    "8": {
       inputs: {
         text: "blurry, low quality, distorted, static, frozen, bad anatomy, watermark",
         clip: ["4", 0]
       },
       class_type: "CLIPTextEncode",
-      _meta: { title: "Negative Prompt" }
+      _meta: { title: "CLIP Text Encode (Negative)" }
     },
-    // Apply WAN image-to-video conditioning
-    "10": {
+    // WanImageToVideo - creates latent and applies image conditioning
+    "9": {
       inputs: {
-        model: ["1", 0],
+        width: width,
+        height: height,
+        length: frames,
+        batch_size: 1,
         clip_vision_output: ["6", 0],
-        start_image: ["5", 0],
-        strength: 1.0
+        start_image: ["5", 0]
       },
-      class_type: "WanImageToVideoConditioning",
-      _meta: { title: "WAN I2V Conditioning" }
+      class_type: "WanImageToVideo",
+      _meta: { title: "Wan Image To Video" }
     },
     // KSampler
-    "11": {
+    "10": {
       inputs: {
         seed: seed,
         steps: steps,
@@ -131,25 +122,25 @@ const createWanI2VWorkflow = (
         sampler_name: "euler",
         scheduler: "normal",
         denoise: 1.0,
-        model: ["10", 0],
-        positive: ["8", 0],
-        negative: ["9", 0],
-        latent_image: ["7", 0]
+        model: ["1", 0],
+        positive: ["7", 0],
+        negative: ["8", 0],
+        latent_image: ["9", 0]
       },
       class_type: "KSampler",
       _meta: { title: "KSampler" }
     },
     // VAE Decode
-    "12": {
+    "11": {
       inputs: {
-        samples: ["11", 0],
+        samples: ["10", 0],
         vae: ["2", 0]
       },
       class_type: "VAEDecode",
       _meta: { title: "VAE Decode" }
     },
     // Save video using VHS
-    "13": {
+    "12": {
       inputs: {
         frame_rate: 16,
         loop_count: 0,
@@ -157,10 +148,10 @@ const createWanI2VWorkflow = (
         format: "video/h264-mp4",
         pingpong: false,
         save_output: true,
-        images: ["12", 0]
+        images: ["11", 0]
       },
       class_type: "VHS_VideoCombine",
-      _meta: { title: "Video Output" }
+      _meta: { title: "Video Combine" }
     }
   };
 };
