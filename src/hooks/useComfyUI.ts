@@ -786,13 +786,21 @@ export function useComfyUI() {
     
     // Create VHS Video Combine workflow
     // Note: This requires VHS (VideoHelperSuite) custom nodes to be installed
-    const stitchWorkflow = {
+    // VHS_LoadVideoPath requires video path without subfolder prefix when uploaded
+    const getVideoPath = (fullPath: string) => {
+      // Extract just the filename from "videos/filename.mp4"
+      return fullPath.includes('/') ? fullPath.split('/').pop()! : fullPath;
+    };
+    
+    const stitchWorkflow: Record<string, object> = {
       "1": {
         "class_type": "VHS_LoadVideoPath",
         "inputs": {
-          "video": uploadedFilenames[0],
+          "video": getVideoPath(uploadedFilenames[0]),
           "force_rate": 0,
           "force_size": "Disabled",
+          "custom_width": 512,
+          "custom_height": 512,
           "frame_load_cap": 0,
           "skip_first_frames": 0,
           "select_every_nth": 1
@@ -806,26 +814,27 @@ export function useComfyUI() {
       const loadNodeId = String(i * 2 + 1);
       const combineNodeId = String(i * 2 + 2);
       
-      // @ts-ignore - dynamic workflow building
       stitchWorkflow[loadNodeId] = {
         "class_type": "VHS_LoadVideoPath",
         "inputs": {
-          "video": uploadedFilenames[i],
+          "video": getVideoPath(uploadedFilenames[i]),
           "force_rate": 0,
           "force_size": "Disabled",
+          "custom_width": 512,
+          "custom_height": 512,
           "frame_load_cap": 0,
           "skip_first_frames": 0,
           "select_every_nth": 1
         }
       };
       
-      // @ts-ignore - dynamic workflow building
+      // VHS_MergeImages merge_strategy must be one of: 'match A', 'match B', 'match smaller', 'match larger'
       stitchWorkflow[combineNodeId] = {
         "class_type": "VHS_MergeImages",
         "inputs": {
           "images_A": [lastCombineNode, 0],
           "images_B": [loadNodeId, 0],
-          "merge_strategy": "append",
+          "merge_strategy": "match A",
           "scale_method": "nearest-exact",
           "crop": "disabled"
         }
@@ -836,7 +845,6 @@ export function useComfyUI() {
     
     // Add output node
     const outputNodeId = String(parseInt(lastCombineNode) + 1);
-    // @ts-ignore - dynamic workflow building
     stitchWorkflow[outputNodeId] = {
       "class_type": "VHS_VideoCombine",
       "inputs": {
