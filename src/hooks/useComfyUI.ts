@@ -337,6 +337,56 @@ export function useComfyUI() {
     throw new Error('Failed to retrieve image from ComfyUI');
   }, [getComfyUrl]);
 
+  // Extract first image-like output from a completed history item
+  const extractImageFromHistory = useCallback(async (history: HistoryItem): Promise<string | null> => {
+    for (const nodeId of Object.keys(history.outputs ?? {})) {
+      const output = history.outputs[nodeId];
+
+      if (output.images && output.images.length > 0) {
+        const image =
+          output.images.find(
+            (f) =>
+              f.filename.endsWith(".png") ||
+              f.filename.endsWith(".jpg") ||
+              f.filename.endsWith(".jpeg") ||
+              f.filename.endsWith(".webp")
+          ) ?? output.images[0];
+
+        const imageData = await getImageData(image.filename, image.subfolder, image.type);
+        return imageData;
+      }
+    }
+
+    return null;
+  }, [getImageData]);
+
+  const extractVideoFromHistory = useCallback(async (history: HistoryItem): Promise<string | null> => {
+    for (const nodeId of Object.keys(history.outputs ?? {})) {
+      const output = history.outputs[nodeId];
+
+      // VHS often outputs here
+      if (output.gifs && output.gifs.length > 0) {
+        const video = output.gifs[0];
+        return await getImageData(video.filename, video.subfolder, video.type);
+      }
+
+      if (output.videos && output.videos.length > 0) {
+        const video = output.videos[0];
+        return await getImageData(video.filename, video.subfolder, video.type);
+      }
+
+      // Some setups still put mp4/gif into images
+      if (output.images && output.images.length > 0) {
+        const file = output.images.find(
+          (f) => f.filename.endsWith(".mp4") || f.filename.endsWith(".gif") || f.filename.endsWith(".webm")
+        );
+        if (file) return await getImageData(file.filename, file.subfolder, file.type);
+      }
+    }
+
+    return null;
+  }, [getImageData]);
+
   // Poll for completion and return the generated image
   const pollForCompletion = useCallback(async (
     promptId: string,
@@ -344,55 +394,40 @@ export function useComfyUI() {
     interval: number = 1000
   ): Promise<ComfyUIWorkflowResult> => {
     let attempts = 0;
-    
+
     while (attempts < maxAttempts) {
       const inQueue = await checkQueue(promptId);
-      
+
       if (!inQueue) {
-        const history = await getHistory(promptId);
-        console.log("Image generation history:", JSON.stringify(history, null, 2));
-        
-        if (history) {
-          for (const nodeId of Object.keys(history.outputs)) {
-            const output = history.outputs[nodeId];
-            console.log(`Checking node ${nodeId} output:`, JSON.stringify(output, null, 2));
-            
-            // Check for images array (standard SaveImage node output)
-            if (output.images && output.images.length > 0) {
-              // Filter for actual images, not videos
-              const image = output.images.find(f => 
-                f.filename.endsWith('.png') || 
-                f.filename.endsWith('.jpg') ||
-                f.filename.endsWith('.jpeg') ||
-                f.filename.endsWith('.webp')
-              ) || output.images[0]; // Fallback to first if no image extensions found
-              
-              console.log("Found image:", image);
-              const imageData = await getImageData(image.filename, image.subfolder, image.type);
-              
-              return {
-                imageUrl: imageData,
-                seed: 0,
-              };
+        // ComfyUI sometimes drops the prompt from the queue before the history/output is fully written.
+        // So we retry history for a short period before declaring failure.
+        const historyRetryMax = 20;
+        for (let r = 0; r < historyRetryMax; r++) {
+          const history = await getHistory(promptId);
+          if (history?.outputs) {
+            const imageUrl = await extractImageFromHistory(history);
+            if (imageUrl) {
+              return { imageUrl, seed: 0 };
             }
           }
-          
-          // If we got here with a history but no images, log all output keys for debugging
-          console.error("History found but no images. Output nodes:", Object.keys(history.outputs));
-          console.error("Full history:", JSON.stringify(history, null, 2));
+          await new Promise((resolve) => setTimeout(resolve, 500));
         }
-        
-        throw new Error("Generation completed but no image found. Check ComfyUI workflow has a SaveImage node.");
+
+        const history = await getHistory(promptId);
+        console.error("Image generation: history present but no image output.", history);
+        throw new Error(
+          "Generation completed but no image found yet. This usually means the workflow didn't write a SaveImage output or ComfyUI hasn't finished writing history."
+        );
       }
-      
+
       setProgress(Math.min((attempts / maxAttempts) * 100, 95));
-      
-      await new Promise(resolve => setTimeout(resolve, interval));
+
+      await new Promise((resolve) => setTimeout(resolve, interval));
       attempts++;
     }
-    
+
     throw new Error("Generation timed out");
-  }, [checkQueue, getHistory, getImageData]);
+  }, [checkQueue, getHistory, extractImageFromHistory]);
 
   // Poll for video completion - waits indefinitely until job completes
   const pollForVideoCompletion = useCallback(async (
@@ -401,9 +436,8 @@ export function useComfyUI() {
   ): Promise<ComfyUIVideoResult> => {
     let pollCount = 0;
     const startTime = Date.now();
-    let lastProgress = 0;
     let progressHistory: { time: number; progress: number }[] = [];
-    
+
     // Reset progress info at start
     setVideoProgressInfo({
       progress: 0,
@@ -411,15 +445,31 @@ export function useComfyUI() {
       estimatedTotalSeconds: null,
       estimatedRemainingSeconds: null,
     });
-    
+
     while (true) {
       const inQueue = await checkQueue(promptId);
-      
+
       if (!inQueue) {
-        const history = await getHistory(promptId);
-        console.log("Video generation history:", JSON.stringify(history, null, 2));
-        
-        // Set complete progress
+        // Short grace period for history/output files to appear
+        const historyRetryMax = 30;
+        for (let r = 0; r < historyRetryMax; r++) {
+          const history = await getHistory(promptId);
+          if (history?.outputs) {
+            const videoUrl = await extractVideoFromHistory(history);
+            if (videoUrl) {
+              const finalElapsed = Math.floor((Date.now() - startTime) / 1000);
+              setVideoProgressInfo({
+                progress: 100,
+                elapsedSeconds: finalElapsed,
+                estimatedTotalSeconds: finalElapsed,
+                estimatedRemainingSeconds: 0,
+              });
+              return { videoUrl, seed: 0 };
+            }
+          }
+          await new Promise((resolve) => setTimeout(resolve, 750));
+        }
+
         const finalElapsed = Math.floor((Date.now() - startTime) / 1000);
         setVideoProgressInfo({
           progress: 100,
@@ -427,78 +477,31 @@ export function useComfyUI() {
           estimatedTotalSeconds: finalElapsed,
           estimatedRemainingSeconds: 0,
         });
-        
-        if (history) {
-          for (const nodeId of Object.keys(history.outputs)) {
-            const output = history.outputs[nodeId];
-            console.log(`Checking node ${nodeId} output:`, output);
-            
-            // Check for gifs array (VHS_VideoCombine outputs here)
-            if (output.gifs && output.gifs.length > 0) {
-              const video = output.gifs[0];
-              console.log("Found video in gifs array:", video);
-              const videoData = await getImageData(video.filename, video.subfolder, video.type);
-              
-              return {
-                videoUrl: videoData,
-                seed: 0,
-              };
-            }
-            
-            // Check for videos array (alternative VHS output)
-            if ((output as HistoryOutput & { videos?: Array<{ filename: string; subfolder: string; type: string }> }).videos?.length) {
-              const video = (output as HistoryOutput & { videos: Array<{ filename: string; subfolder: string; type: string }> }).videos[0];
-              console.log("Found video in videos array:", video);
-              const videoData = await getImageData(video.filename, video.subfolder, video.type);
-              return {
-                videoUrl: videoData,
-                seed: 0,
-              };
-            }
-            
-            // Check images array for mp4/gif files
-            if (output.images && output.images.length > 0) {
-              const file = output.images.find(f => 
-                f.filename.endsWith('.mp4') || 
-                f.filename.endsWith('.gif') ||
-                f.filename.endsWith('.webm')
-              );
-              if (file) {
-                console.log("Found video in images array:", file);
-                const videoData = await getImageData(file.filename, file.subfolder, file.type);
-                return {
-                  videoUrl: videoData,
-                  seed: 0,
-                };
-              }
-            }
-          }
-        }
-        
-        throw new Error("Video generation completed but no video found. Make sure AnimateDiff and VHS nodes are installed.");
+
+        const history = await getHistory(promptId);
+        console.error("Video generation: history present but no video output.", history);
+        throw new Error(
+          "Video generation completed but no video found yet. If you're using VHS_VideoCombine, ensure it is saving output (save_output=true) and try again."
+        );
       }
-      
+
       // Calculate elapsed time and estimate remaining
       pollCount++;
       const elapsedMs = Date.now() - startTime;
       const elapsedSeconds = Math.floor(elapsedMs / 1000);
-      
-      // Use a heuristic for progress since ComfyUI queue doesn't give detailed progress
-      // Assume ~15-20 min average, adjust based on observed completion times
+
+      // Heuristic progress (ComfyUI doesn't expose per-step progress reliably)
       const estimatedTotalSeconds = 18 * 60; // 18 minutes average
       const estimatedProgress = Math.min(95, (elapsedSeconds / estimatedTotalSeconds) * 100);
-      
-      // Track progress history for smoother ETA calculation
+
       progressHistory.push({ time: elapsedSeconds, progress: estimatedProgress });
-      if (progressHistory.length > 10) progressHistory.shift(); // Keep last 10 samples
-      
-      // Calculate ETA based on linear progression
+      if (progressHistory.length > 10) progressHistory.shift();
+
       let estimatedRemainingSeconds: number | null = null;
       if (estimatedProgress > 5 && estimatedProgress < 95) {
-        // Linear estimate: remaining = elapsed * (remaining% / completed%)
         estimatedRemainingSeconds = Math.round(elapsedSeconds * ((100 - estimatedProgress) / estimatedProgress));
       }
-      
+
       setVideoProgress(estimatedProgress);
       setVideoProgressInfo({
         progress: estimatedProgress,
@@ -506,12 +509,16 @@ export function useComfyUI() {
         estimatedTotalSeconds,
         estimatedRemainingSeconds,
       });
-      
-      console.log(`Video generation: ${elapsedSeconds}s elapsed, ~${estimatedRemainingSeconds ? Math.round(estimatedRemainingSeconds / 60) + ' min' : '?'} remaining`);
-      
-      await new Promise(resolve => setTimeout(resolve, interval));
+
+      console.log(
+        `Video generation: ${elapsedSeconds}s elapsed, ~${
+          estimatedRemainingSeconds ? Math.round(estimatedRemainingSeconds / 60) + " min" : "?"
+        } remaining`
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, interval));
     }
-  }, [checkQueue, getHistory, getImageData]);
+  }, [checkQueue, getHistory, extractVideoFromHistory]);
 
   // Main function to generate an image
   const generateImage = useCallback(async (
