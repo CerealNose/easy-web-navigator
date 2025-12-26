@@ -4,6 +4,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import { 
   ImageIcon, 
   X, 
@@ -46,6 +47,7 @@ export function SceneEditor({
   const [expandedScene, setExpandedScene] = useState<number | null>(null);
   const [analyzingScene, setAnalyzingScene] = useState<number | null>(null);
   const [isAnalyzingAll, setIsAnalyzingAll] = useState(false);
+  const [analyzeProgress, setAnalyzeProgress] = useState({ current: 0, total: 0 });
   const fileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   // Convert file to base64 for API
@@ -119,10 +121,12 @@ export function SceneEditor({
     }
 
     setIsAnalyzingAll(true);
+    setAnalyzeProgress({ current: 0, total: scenesWithImages.length });
     toast.info(`Analyzing ${scenesWithImages.length} images...`);
     
     let successCount = 0;
     let errorCount = 0;
+    let processed = 0;
 
     for (const { scene, index } of scenesWithImages) {
       try {
@@ -161,10 +165,13 @@ export function SceneEditor({
         console.error(`Scene ${index + 1} analysis failed:`, error);
         errorCount++;
       }
+      processed++;
+      setAnalyzeProgress({ current: processed, total: scenesWithImages.length });
     }
 
     setAnalyzingScene(null);
     setIsAnalyzingAll(false);
+    setAnalyzeProgress({ current: 0, total: 0 });
     
     if (errorCount === 0) {
       toast.success(`Analyzed ${successCount} images successfully`);
@@ -247,6 +254,24 @@ export function SceneEditor({
           </div>
         </div>
       </div>
+
+      {/* Progress bar for batch analysis */}
+      {isAnalyzingAll && analyzeProgress.total > 0 && (
+        <div className="mb-4 space-y-2">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">
+              Analyzing image {analyzeProgress.current + 1} of {analyzeProgress.total}...
+            </span>
+            <span className="text-primary font-medium">
+              {Math.round((analyzeProgress.current / analyzeProgress.total) * 100)}%
+            </span>
+          </div>
+          <Progress 
+            value={(analyzeProgress.current / analyzeProgress.total) * 100} 
+            className="h-2"
+          />
+        </div>
+      )}
 
       <p className="text-sm text-muted-foreground mb-4">
         Click on a scene to edit its prompt or add a custom image. AI will generate images for scenes without uploads.
