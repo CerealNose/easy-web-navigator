@@ -167,7 +167,11 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
   
   // Settings context and ComfyUI hook
   const { inferenceMode, isComfyUIConnected } = useSettings();
-  const { generateImage: generateLocalImage, progress: localProgress } = useComfyUI();
+  const {
+    generateImage: generateLocalImage,
+    generateVideo: generateLocalVideo,
+    progress: localProgress,
+  } = useComfyUI();
   
   // Settings
   const [stylePreset, setStylePreset] = useState<keyof typeof STYLE_PRESETS>("cinematic");
@@ -1509,19 +1513,14 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
             imageUrl = imageRes.data.imageUrl;
           }
 
-          // When using local mode, videos are skipped so mark as complete
-          const shouldGenerateVideo = autoGenerateVideo && !useLocalGeneration;
+          const shouldGenerateVideo = autoGenerateVideo;
           setScenes(prev => prev.map((s, idx) => 
             idx === i ? { ...s, imageUrl, status: shouldGenerateVideo ? 'generating-video' : 'complete' } : s
           ));
         }
 
-        // Generate video if enabled - but skip if using local mode (no local video generation support yet)
-        if (autoGenerateVideo && useLocalGeneration && i === 0) {
-          toast.info("Video generation skipped in Local mode. Images only.", { duration: 5000 });
-        }
-        
-        if (autoGenerateVideo && !useLocalGeneration) {
+        // Generate video if enabled
+        if (autoGenerateVideo) {
           const motionPrompt = MOTION_PRESETS[motionPreset].prompt;
           const sizeConfig = VIDEO_SIZES[videoSize];
           const fpsValue = FPS_OPTIONS[videoFps].value;
@@ -1552,16 +1551,88 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
           
           // Use unique seed per scene for video (same base + offset for consistency with variation)
           const videoSeed = batchSeed ? batchSeed + i * 100 : undefined;
-          
-          const videoPayload: Record<string, unknown> = {
-            imageUrl,
-            prompt: videoPrompt,
-            duration: Math.min(sceneList[i].duration, 10), // seedance supports up to 12s
-            resolution: sizeConfig.maxArea, // "480p", "720p", or "1080p"
-            aspectRatio: ASPECT_RATIOS[aspectRatio].value, // "16:9", "9:16", or "1:1"
-            fps: fpsValue,
-            seed: videoSeed,
-          };
+
+          if (useLocalGeneration) {
+            try {
+              toast.info(`Scene ${i + 1}: Generating video locally (ComfyUI AnimateDiff)...`, { duration: 8000 });
+
+              const targetSeconds = Math.min(sceneList[i].duration, 10);
+              const localFps = Math.min(fpsValue, 24);
+              const localFrames = Math.max(8, Math.min(32, Math.round(targetSeconds * localFps)));
+
+              const localVideo = await generateLocalVideo(imageUrl, videoPrompt, {
+                seed: typeof videoSeed === "number" ? videoSeed : undefined,
+                settingsOverride: {
+                  frameRate: localFps,
+                  frames: localFrames,
+                },
+              });
+
+              const videoUrl = localVideo.videoUrl;
+
+              setScenes(prev => prev.map((s, idx) =>
+                idx === i ? { ...s, videoUrl, status: 'complete' } : s
+              ));
+
+              // Track clip duration and recalculate estimated clips
+              const clipDuration = sceneList[i].duration;
+              setCompletedClipDurations(prev => {
+                const newDurations = [...prev, clipDuration];
+                const avgDuration = newDurations.reduce((a, b) => a + b, 0) / newDurations.length;
+                setAvgClipDuration(avgDuration);
+
+                if (audioDuration) {
+                  const completedTime = newDurations.reduce((a, b) => a + b, 0);
+                  const remainingTime = audioDuration - completedTime;
+                  const remainingClips = Math.ceil(remainingTime / avgDuration);
+                  setEstimatedClips(newDurations.length + Math.max(0, remainingClips));
+                }
+
+                return newDurations;
+              });
+
+              // Extract last frame for continuity with next scene
+              if (useFrameContinuity && videoUrl) {
+                setIsExtractingFrame(true);
+                console.log(`Scene ${i + 1}: Extracting last frame for continuity...`);
+                const lastFrame = await extractLastFrame(videoUrl);
+                setIsExtractingFrame(false);
+
+                if (lastFrame) {
+                  previousVideoLastFrame = lastFrame;
+                  console.log(`Scene ${i + 1}: Last frame extracted successfully`);
+                } else {
+                  console.warn(`Scene ${i + 1}: Failed to extract last frame, next scene will use AI generation`);
+                  previousVideoLastFrame = null;
+                }
+              }
+            } catch (localVideoError: any) {
+              console.error(`Scene ${i + 1}: Local video generation failed`, localVideoError);
+              setScenes(prev => prev.map((s, idx) =>
+                idx === i ? { ...s, status: 'error' } : s
+              ));
+
+              const msg = localVideoError instanceof Error ? localVideoError.message : String(localVideoError);
+              if (msg.includes("ANIMATEDIFF_NOT_INSTALLED")) {
+                toast.error("Local video needs AnimateDiff installed in ComfyUI.");
+              } else if (msg.includes("NO_SD15_CHECKPOINT")) {
+                toast.error("Local video needs at least one SD1.5 checkpoint in ComfyUI.");
+              } else {
+                toast.error(`Scene ${i + 1}: Local video failed`);
+              }
+
+              previousVideoLastFrame = null;
+            }
+          } else {
+            const videoPayload: Record<string, unknown> = {
+              imageUrl,
+              prompt: videoPrompt,
+              duration: Math.min(sceneList[i].duration, 10), // seedance supports up to 12s
+              resolution: sizeConfig.maxArea, // "480p", "720p", or "1080p"
+              aspectRatio: ASPECT_RATIOS[aspectRatio].value, // "16:9", "9:16", or "1:1"
+              fps: fpsValue,
+              seed: videoSeed,
+            };
           
           console.log(`Scene ${i + 1}: Using unique motion prompt and seed for variation`);
           
@@ -1685,6 +1756,7 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
           
           // Add delay between scene video generations to avoid rate limits
           await new Promise(resolve => setTimeout(resolve, 2000));
+          }
         }
 
         toast.success(`Scene ${i + 1}/${sceneList.length} complete`);
