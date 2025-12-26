@@ -162,14 +162,14 @@ const createAnimateDiffI2VWorkflow = (
   
   // If using motion LoRA, add the motion LoRA loader node
   if (useMotionLora) {
-    // Load motion LoRA using ADE_AnimateDiffLoRALoader
+    // Note: ComfyUI's ADE_AnimateDiffLoRALoader expects the input key to be `name` (not `lora_name`).
     baseWorkflow["13"] = {
       "inputs": {
-        "lora_name": videoSettings.motionLora,
-        "strength": videoSettings.motionLoraStrength
+        "name": videoSettings.motionLora,
+        "strength": videoSettings.motionLoraStrength,
       },
       "class_type": "ADE_AnimateDiffLoRALoader",
-      "_meta": { "title": "Load Motion LoRA" }
+      "_meta": { "title": "Load Motion LoRA" },
     };
     
     // Apply motion model with LoRA - motion_lora is an optional input
@@ -775,6 +775,31 @@ export function useComfyUI() {
       throw new Error("ANIMATEDIFF_NOT_INSTALLED");
     }
 
+    // Validate selected AnimateDiff motion model against what's installed in ComfyUI
+    try {
+      const info = await callComfyUIProxy("get_object_info", getComfyUrl(), {
+        node_class: "ADE_LoadAnimateDiffModel",
+      });
+
+      const allowed =
+        info?.ADE_LoadAnimateDiffModel?.input?.required?.model_name?.[0] ??
+        info?.ADE_LoadAnimateDiffModel?.input?.optional?.model_name?.[0] ??
+        [];
+
+      if (Array.isArray(allowed) && allowed.length > 0 && !allowed.includes(settings.motionModel)) {
+        const selected = settings.motionModel;
+        const fallback = allowed[0] as string;
+        console.warn(`Selected motion model '${selected}' not available. Falling back to '${fallback}'.`);
+        settings = { ...settings, motionModel: fallback };
+        toast.warning("Motion model not found in ComfyUI", {
+          description: `Using '${fallback}' instead of '${selected}'.`,
+        });
+      }
+    } catch (e) {
+      // If we can't validate, proceed with user's choice.
+      console.warn("Could not validate motion model list:", e);
+    }
+
     // Check if VHS is available for proper video output
     const hasVHS = await checkVHSAvailable();
     if (!hasVHS) {
@@ -788,31 +813,31 @@ export function useComfyUI() {
       // Get available checkpoints and find an SD1.5 compatible one
       // AnimateDiff v3_sd15_mm.ckpt only works with SD1.5 checkpoints, not SDXL
       const availableCheckpoints: string[] = await getModels();
-      
+
       // Filter for SD1.5 compatible checkpoints (exclude XL, SDXL, Juggernaut XL, etc.)
       const sd15Checkpoints = availableCheckpoints.filter((name: string) => {
         const lowerName = name.toLowerCase();
-        return !lowerName.includes('xl') && !lowerName.includes('sdxl') && !lowerName.includes('turbo');
+        return !lowerName.includes("xl") && !lowerName.includes("sdxl") && !lowerName.includes("turbo");
       });
-      
+
       const checkpoint = sd15Checkpoints[0];
-      
+
       if (!checkpoint) {
         // No SD1.5 checkpoint available - AnimateDiff won't work
         throw new Error("NO_SD15_CHECKPOINT");
       }
-      
+
       // Upload the image to ComfyUI first
       setVideoProgress(2);
       const uploadFilename = `input_${Date.now()}.png`;
       const uploadedName = await uploadImage(imageUrl, uploadFilename);
-      
+
       // Create AnimateDiff workflow with uploaded image filename and video settings
       const workflow = createAnimateDiffI2VWorkflow(
-        uploadedName, 
-        motionPrompt, 
-        seed, 
-        hasVHS, 
+        uploadedName,
+        motionPrompt,
+        seed,
+        hasVHS,
         checkpoint,
         settings
       );

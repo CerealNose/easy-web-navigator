@@ -336,9 +336,9 @@ export const FORMAT_OPTIONS = [
 
 export const MOTION_MODEL_OPTIONS = [
   { value: "v3_sd15_mm.ckpt", label: "AnimateDiff v3 (SD1.5)" },
-  { value: "v2_lora_adapter_sd15.ckpt", label: "AnimateDiff v2 (SD1.5)" },
-  { value: "mm_sd_v15_v2.ckpt", label: "AnimateDiff SD1.5 v2" },
-  { value: "mm_sd_v15.ckpt", label: "AnimateDiff SD1.5 v1" },
+  { value: "mm_sd_v15.ckpt", label: "AnimateDiff SD1.5 (v1)" },
+  { value: "mm_sd_v14.ckpt", label: "AnimateDiff SD1.4" },
+  { value: "CameraCtrl_pruned.safetensors", label: "CameraCtrl (AnimateDiff)" },
 ];
 
 interface ComfyUIConfig {
