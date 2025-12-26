@@ -1608,29 +1608,37 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
                   },
                 });
                 
-                // Auto-stitch clips into a single video
-                toast.info(`Scene ${i + 1}: Stitching ${longVideoResult.videoUrls.length} clips...`, { duration: 5000 });
-                
+                // Check if server already stitched the video
                 let finalVideoUrl: string;
-                try {
-                  const stitchedResult = await stitchVideos(longVideoResult.videoUrls, {
-                    outputFilename: `scene_${i + 1}_stitched.mp4`,
-                    onProgress: (p) => {
-                      if (p.stage === 'downloading') {
-                        toast.info(`Scene ${i + 1}: ${p.message}`, { duration: 2000 });
-                      }
-                    },
-                  });
-                  finalVideoUrl = stitchedResult.url;
-                  toast.success(`Scene ${i + 1}: Stitched into single ${longVideoResult.totalDuration.toFixed(1)}s video!`, { duration: 5000 });
-                } catch (stitchError) {
-                  console.warn(`Scene ${i + 1}: Stitching failed, using last clip instead:`, stitchError);
-                  // Fallback to last clip if stitching fails
-                  finalVideoUrl = longVideoResult.videoUrls[longVideoResult.videoUrls.length - 1];
-                  toast.warning(`Scene ${i + 1}: Couldn't stitch clips, using last clip. ${longVideoResult.videoUrls.length} clips available for manual download.`, { duration: 8000 });
+                if (longVideoResult.stitchedUrl) {
+                  // ComfyUI already stitched on server
+                  finalVideoUrl = longVideoResult.stitchedUrl;
+                  toast.success(`Scene ${i + 1}: Stitched on ComfyUI (${longVideoResult.totalDuration.toFixed(1)}s)!`, { duration: 5000 });
+                } else if (longVideoResult.videoUrls.length > 1) {
+                  // Fallback to browser-side stitching with ffmpeg.wasm
+                  toast.info(`Scene ${i + 1}: Stitching ${longVideoResult.videoUrls.length} clips in browser...`, { duration: 5000 });
+                  
+                  try {
+                    const stitchedResult = await stitchVideos(longVideoResult.videoUrls, {
+                      outputFilename: `scene_${i + 1}_stitched.mp4`,
+                      onProgress: (p) => {
+                        if (p.stage === 'downloading') {
+                          toast.info(`Scene ${i + 1}: ${p.message}`, { duration: 2000 });
+                        }
+                      },
+                    });
+                    finalVideoUrl = stitchedResult.url;
+                    toast.success(`Scene ${i + 1}: Stitched into ${longVideoResult.totalDuration.toFixed(1)}s video!`, { duration: 5000 });
+                  } catch (stitchError) {
+                    console.warn(`Scene ${i + 1}: Browser stitching failed, using last clip:`, stitchError);
+                    finalVideoUrl = longVideoResult.videoUrls[longVideoResult.videoUrls.length - 1];
+                    toast.warning(`Scene ${i + 1}: Couldn't stitch clips, using last clip.`, { duration: 8000 });
+                  }
+                } else {
+                  finalVideoUrl = longVideoResult.videoUrls[0];
                 }
                 
-                // Store stitched video URL (or fallback) and keep clip URLs for backup
+                // Store stitched video URL and keep clip URLs for backup
                 setScenes(prev => prev.map((s, idx) =>
                   idx === i ? { 
                     ...s, 
