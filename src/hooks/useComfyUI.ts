@@ -122,6 +122,15 @@ const createWorkflowWithCheckpoint = (
   return workflow;
 };
 
+// AnimateDiff motion model frame limits (without context window)
+const ANIMATEDIFF_MODEL_FRAME_LIMITS: Record<string, number> = {
+  'mm_sd_v14.ckpt': 24,
+  'mm_sd_v15.ckpt': 24,
+  'v3_sd15_mm.ckpt': 32,
+  'CameraCtrl_pruned.safetensors': 24,
+};
+const DEFAULT_ANIMATEDIFF_FRAME_LIMIT = 24;
+
 // AnimateDiff Image-to-Video workflow for local video generation
 // This requires AnimateDiff custom nodes installed in ComfyUI
 // If VHS is not installed, it outputs frames that are combined client-side
@@ -135,6 +144,15 @@ const createAnimateDiffI2VWorkflow = (
   videoSettings: VideoSettings
 ) => {
   const useMotionLora = videoSettings.motionLora && videoSettings.motionLora !== "none";
+
+  // Determine max frames supported by the motion model
+  const motionModel = videoSettings.motionModel;
+  const maxFrames = ANIMATEDIFF_MODEL_FRAME_LIMITS[motionModel] ?? DEFAULT_ANIMATEDIFF_FRAME_LIMIT;
+  const effectiveFrames = Math.min(videoSettings.frames, maxFrames);
+
+  if (effectiveFrames < videoSettings.frames) {
+    console.warn(`AnimateDiff model ${motionModel} supports max ${maxFrames} frames. Capping from ${videoSettings.frames} to ${effectiveFrames}.`);
+  }
   
   const baseWorkflow: Record<string, object> = {
     "1": {
@@ -153,7 +171,7 @@ const createAnimateDiffI2VWorkflow = (
     },
     "3": {
       "inputs": {
-        "model_name": videoSettings.motionModel
+        "model_name": motionModel
       },
       "class_type": "ADE_LoadAnimateDiffModel",
       "_meta": { "title": "Load AnimateDiff Model" }
@@ -237,7 +255,7 @@ const createAnimateDiffI2VWorkflow = (
   baseWorkflow["8"] = {
     "inputs": {
       "samples": ["7", 0],
-      "amount": videoSettings.frames
+      "amount": effectiveFrames
     },
     "class_type": "RepeatLatentBatch",
     "_meta": { "title": "Repeat Latent Batch" }
