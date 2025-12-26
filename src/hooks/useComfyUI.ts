@@ -923,30 +923,52 @@ export function useComfyUI() {
     const videoUrls: string[] = [];
     let currentImageUrl = imageUrl;
     
+    // Track current settings - may be reduced on OOM retry
+    let currentSettings = { ...settings };
+    
     for (let i = 0; i < numClips; i++) {
       console.log(`Generating clip ${i + 1}/${numClips}...`);
       onClipProgress?.(i, numClips, null);
       
-      try {
-        const clipSeed = seed + i; // Vary seed slightly for each clip
-        const result = await generateVideo(currentImageUrl, motionPrompt, {
-          seed: clipSeed,
-          settingsOverride: settings, // Use exact user settings, no modification
-        });
-        
-        videoUrls.push(result.videoUrl);
-        onClipProgress?.(i, numClips, result.videoUrl);
-        
-        // For continuity: extract last frame of this clip to use as input for next clip
-        if (i < numClips - 1) {
-          const lastFrame = await extractLastFrameFromVideo(result.videoUrl);
-          if (lastFrame) {
-            currentImageUrl = lastFrame;
+      let attempts = 0;
+      const maxOomRetries = 2;
+      
+      while (attempts <= maxOomRetries) {
+        try {
+          const clipSeed = seed + i; // Vary seed slightly for each clip
+          const result = await generateVideo(currentImageUrl, motionPrompt, {
+            seed: clipSeed,
+            settingsOverride: currentSettings,
+          });
+          
+          videoUrls.push(result.videoUrl);
+          onClipProgress?.(i, numClips, result.videoUrl);
+          
+          // For continuity: extract last frame of this clip to use as input for next clip
+          if (i < numClips - 1) {
+            const lastFrame = await extractLastFrameFromVideo(result.videoUrl);
+            if (lastFrame) {
+              currentImageUrl = lastFrame;
+            }
+          }
+          break; // Success, exit retry loop
+        } catch (err) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          const isOom = errorMessage.toLowerCase().includes('out of memory') || 
+                        errorMessage.toLowerCase().includes('oom') ||
+                        errorMessage.toLowerCase().includes('cuda');
+          
+          if (isOom && attempts < maxOomRetries) {
+            // Reduce frames by half on OOM
+            const newFrames = Math.max(8, Math.floor(currentSettings.frames / 2));
+            console.warn(`OOM detected on clip ${i + 1}, reducing frames from ${currentSettings.frames} to ${newFrames} and retrying...`);
+            currentSettings = { ...currentSettings, frames: newFrames };
+            attempts++;
+          } else {
+            console.error(`Failed to generate clip ${i + 1}:`, err);
+            throw new Error(`Failed to generate clip ${i + 1}/${numClips}: ${errorMessage}`);
           }
         }
-      } catch (err) {
-        console.error(`Failed to generate clip ${i + 1}:`, err);
-        throw new Error(`Failed to generate clip ${i + 1}/${numClips}: ${err instanceof Error ? err.message : 'Unknown error'}`);
       }
     }
     
