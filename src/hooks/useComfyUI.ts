@@ -104,115 +104,134 @@ const createWorkflowWithCheckpoint = (
 
 // AnimateDiff Image-to-Video workflow for local video generation
 // This requires AnimateDiff custom nodes installed in ComfyUI
+// If VHS is not installed, it outputs frames that are combined client-side
 const createAnimateDiffI2VWorkflow = (
-  imageBase64: string,
+  uploadedImageName: string,  // filename of uploaded image in ComfyUI
   motionPrompt: string,
   seed: number,
-  frames: number = 16
-) => ({
-  "1": {
-    "inputs": {
-      "image": imageBase64,
-      "upload": "image"
+  frames: number = 16,
+  hasVHS: boolean = false
+) => {
+  const baseWorkflow: Record<string, object> = {
+    "1": {
+      "inputs": {
+        "image": uploadedImageName
+      },
+      "class_type": "LoadImage",
+      "_meta": { "title": "Load Image" }
     },
-    "class_type": "LoadImage",
-    "_meta": { "title": "Load Image" }
-  },
-  "2": {
-    "inputs": {
-      "ckpt_name": "sd15_animatediff.safetensors"
+    "2": {
+      "inputs": {
+        "ckpt_name": "sd15_animatediff.safetensors"
+      },
+      "class_type": "CheckpointLoaderSimple",
+      "_meta": { "title": "Load Checkpoint" }
     },
-    "class_type": "CheckpointLoaderSimple",
-    "_meta": { "title": "Load Checkpoint" }
-  },
-  "3": {
-    "inputs": {
-      "model_name": "v3_sd15_mm.ckpt"
+    "3": {
+      "inputs": {
+        "model_name": "v3_sd15_mm.ckpt"
+      },
+      "class_type": "ADE_LoadAnimateDiffModel",
+      "_meta": { "title": "Load AnimateDiff Model" }
     },
-    "class_type": "ADE_LoadAnimateDiffModel",
-    "_meta": { "title": "Load AnimateDiff Model" }
-  },
-  "4": {
-    "inputs": {
-      "motion_model": ["3", 0],
-      "model": ["2", 0]
+    "4": {
+      "inputs": {
+        "motion_model": ["3", 0],
+        "model": ["2", 0]
+      },
+      "class_type": "ADE_ApplyAnimateDiffModel",
+      "_meta": { "title": "Apply AnimateDiff Model" }
     },
-    "class_type": "ADE_ApplyAnimateDiffModel",
-    "_meta": { "title": "Apply AnimateDiff Model" }
-  },
-  "5": {
-    "inputs": {
-      "text": motionPrompt,
-      "clip": ["2", 1]
+    "5": {
+      "inputs": {
+        "text": motionPrompt,
+        "clip": ["2", 1]
+      },
+      "class_type": "CLIPTextEncode",
+      "_meta": { "title": "CLIP Text Encode (Positive)" }
     },
-    "class_type": "CLIPTextEncode",
-    "_meta": { "title": "CLIP Text Encode (Positive)" }
-  },
-  "6": {
-    "inputs": {
-      "text": "static, still, frozen, bad quality, blurry",
-      "clip": ["2", 1]
+    "6": {
+      "inputs": {
+        "text": "static, still, frozen, bad quality, blurry",
+        "clip": ["2", 1]
+      },
+      "class_type": "CLIPTextEncode",
+      "_meta": { "title": "CLIP Text Encode (Negative)" }
     },
-    "class_type": "CLIPTextEncode",
-    "_meta": { "title": "CLIP Text Encode (Negative)" }
-  },
-  "7": {
-    "inputs": {
-      "pixels": ["1", 0],
-      "vae": ["2", 2]
+    "7": {
+      "inputs": {
+        "pixels": ["1", 0],
+        "vae": ["2", 2]
+      },
+      "class_type": "VAEEncode",
+      "_meta": { "title": "VAE Encode" }
     },
-    "class_type": "VAEEncode",
-    "_meta": { "title": "VAE Encode" }
-  },
-  "8": {
-    "inputs": {
-      "samples": ["7", 0],
-      "batch_size": frames
+    "8": {
+      "inputs": {
+        "samples": ["7", 0],
+        "batch_size": frames
+      },
+      "class_type": "RepeatLatentBatch",
+      "_meta": { "title": "Repeat Latent Batch" }
     },
-    "class_type": "RepeatLatentBatch",
-    "_meta": { "title": "Repeat Latent Batch" }
-  },
-  "9": {
-    "inputs": {
-      "seed": seed,
-      "steps": 20,
-      "cfg": 7.5,
-      "sampler_name": "euler",
-      "scheduler": "normal",
-      "denoise": 0.6,
-      "model": ["4", 0],
-      "positive": ["5", 0],
-      "negative": ["6", 0],
-      "latent_image": ["8", 0]
+    "9": {
+      "inputs": {
+        "seed": seed,
+        "steps": 20,
+        "cfg": 7.5,
+        "sampler_name": "euler",
+        "scheduler": "normal",
+        "denoise": 0.6,
+        "model": ["4", 0],
+        "positive": ["5", 0],
+        "negative": ["6", 0],
+        "latent_image": ["8", 0]
+      },
+      "class_type": "KSampler",
+      "_meta": { "title": "KSampler" }
     },
-    "class_type": "KSampler",
-    "_meta": { "title": "KSampler" }
-  },
-  "10": {
-    "inputs": {
-      "samples": ["9", 0],
-      "vae": ["2", 2]
-    },
-    "class_type": "VAEDecode",
-    "_meta": { "title": "VAE Decode" }
-  },
-  "11": {
-    "inputs": {
-      "frame_rate": 8,
-      "loop_count": 0,
-      "filename_prefix": "AnimateDiff",
-      "format": "video/h264-mp4",
-      "pix_fmt": "yuv420p",
-      "crf": 19,
-      "save_metadata": true,
-      "pingpong": false,
-      "save_output": true,
-      "images": ["10", 0]
-    },
-    "class_type": "VHS_VideoCombine",
-    "_meta": { "title": "Video Combine" }
+    "10": {
+      "inputs": {
+        "samples": ["9", 0],
+        "vae": ["2", 2]
+      },
+      "class_type": "VAEDecode",
+      "_meta": { "title": "VAE Decode" }
+    }
+  };
+
+  if (hasVHS) {
+    // Use VHS_VideoCombine for proper video output
+    baseWorkflow["11"] = {
+      "inputs": {
+        "frame_rate": 8,
+        "loop_count": 0,
+        "filename_prefix": "AnimateDiff",
+        "format": "video/h264-mp4",
+        "pix_fmt": "yuv420p",
+        "crf": 19,
+        "save_metadata": true,
+        "pingpong": false,
+        "save_output": true,
+        "images": ["10", 0]
+      },
+      "class_type": "VHS_VideoCombine",
+      "_meta": { "title": "Video Combine" }
+    };
+  } else {
+    // Fall back to SaveImage for frame output (GIF support is built-in)
+    baseWorkflow["11"] = {
+      "inputs": {
+        "filename_prefix": "AnimateDiff_frames",
+        "images": ["10", 0]
+      },
+      "class_type": "SaveImage",
+      "_meta": { "title": "Save Frames" }
+    };
   }
-});
+
+  return baseWorkflow;
+};
 
 // Helper to call the proxy edge function
 async function callComfyUIProxy(action: string, comfyUrl: string, payload?: object) {
@@ -460,6 +479,25 @@ export function useComfyUI() {
     }
   }, [getComfyUrl]);
 
+  // Check if VHS (Video Helper Suite) nodes are available
+  const checkVHSAvailable = useCallback(async (): Promise<boolean> => {
+    try {
+      const data = await callComfyUIProxy('get_object_info', getComfyUrl(), { node_class: 'VHS_VideoCombine' });
+      return !!data?.VHS_VideoCombine;
+    } catch {
+      return false;
+    }
+  }, [getComfyUrl]);
+
+  // Upload image to ComfyUI
+  const uploadImage = useCallback(async (imageBase64: string, filename: string): Promise<string> => {
+    const data = await callComfyUIProxy('upload_image', getComfyUrl(), { 
+      imageData: imageBase64, 
+      filename 
+    });
+    return data.name || filename;
+  }, [getComfyUrl]);
+
   // Generate video from image using AnimateDiff
   const generateVideo = useCallback(async (
     imageUrl: string,
@@ -486,12 +524,23 @@ export function useComfyUI() {
       throw new Error("ANIMATEDIFF_NOT_INSTALLED");
     }
 
+    // Check if VHS is available for proper video output
+    const hasVHS = await checkVHSAvailable();
+    if (!hasVHS) {
+      console.warn("VHS not installed - will output frames as images instead of video");
+    }
+
     setIsGeneratingVideo(true);
     setVideoProgress(0);
 
     try {
-      // Create AnimateDiff workflow
-      const workflow = createAnimateDiffI2VWorkflow(imageUrl, motionPrompt, seed, frames);
+      // Upload the image to ComfyUI first
+      setVideoProgress(2);
+      const uploadFilename = `input_${Date.now()}.png`;
+      const uploadedName = await uploadImage(imageUrl, uploadFilename);
+      
+      // Create AnimateDiff workflow with uploaded image filename
+      const workflow = createAnimateDiffI2VWorkflow(uploadedName, motionPrompt, seed, frames, hasVHS);
 
       setVideoProgress(5);
       const promptId = await queuePrompt(workflow);
@@ -504,7 +553,7 @@ export function useComfyUI() {
     } finally {
       setIsGeneratingVideo(false);
     }
-  }, [checkConnection, checkAnimateDiffAvailable, queuePrompt, pollForVideoCompletion]);
+  }, [checkConnection, checkAnimateDiffAvailable, checkVHSAvailable, uploadImage, queuePrompt, pollForVideoCompletion]);
 
   // Check system status
   const getSystemStats = useCallback(async () => {
