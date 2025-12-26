@@ -223,10 +223,32 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
   const [isAnalyzingLyrics, setIsAnalyzingLyrics] = useState(false);
   const [selectedStorylineIndex, setSelectedStorylineIndex] = useState<number>(0);
   
-  // Manual duration mode for uploaded images
-  const [useManualDuration, setUseManualDuration] = useState(false);
-  const [manualTotalDuration, setManualTotalDuration] = useState(240); // 4 minutes default
-  const [manualSceneDuration, setManualSceneDuration] = useState(30); // 30 seconds per scene (auto-splits if > max clip length)
+  // Manual duration mode for uploaded images (persist to localStorage)
+  const [useManualDuration, setUseManualDuration] = useState(() => {
+    const saved = localStorage.getItem('genvid_useManualDuration');
+    return saved ? JSON.parse(saved) : false;
+  });
+  const [manualTotalDuration, setManualTotalDuration] = useState(() => {
+    const saved = localStorage.getItem('genvid_manualTotalDuration');
+    return saved ? parseInt(saved, 10) : 240; // 4 minutes default
+  });
+  const [manualSceneDuration, setManualSceneDuration] = useState(() => {
+    const saved = localStorage.getItem('genvid_manualSceneDuration');
+    return saved ? parseInt(saved, 10) : 30; // 30 seconds per scene
+  });
+  
+  // Persist duration settings to localStorage
+  useEffect(() => {
+    localStorage.setItem('genvid_useManualDuration', JSON.stringify(useManualDuration));
+  }, [useManualDuration]);
+  
+  useEffect(() => {
+    localStorage.setItem('genvid_manualTotalDuration', String(manualTotalDuration));
+  }, [manualTotalDuration]);
+  
+  useEffect(() => {
+    localStorage.setItem('genvid_manualSceneDuration', String(manualSceneDuration));
+  }, [manualSceneDuration]);
   
   // Quick target generation state
   const [isGeneratingQuickTarget, setIsGeneratingQuickTarget] = useState(false);
