@@ -186,9 +186,9 @@ export function useWanVideo() {
 
   // Upload image to ComfyUI
   const uploadImage = useCallback(async (imageDataUrl: string, filename: string): Promise<string> => {
-    const base64Data = imageDataUrl.split(",")[1];
+    // Send full data URL - the edge function will strip the prefix
     const response = await callComfyUIProxy(comfyUIConfig.baseUrl, "upload_image", {
-      imageData: base64Data,
+      imageData: imageDataUrl,
       filename,
     });
     return response.name || filename;
