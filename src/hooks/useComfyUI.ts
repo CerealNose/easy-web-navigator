@@ -757,6 +757,133 @@ export function useComfyUI() {
     return videoSettings.frames / videoSettings.frameRate;
   }, [videoSettings.frames, videoSettings.frameRate]);
 
+  // Stitch multiple videos on ComfyUI server using VHS Video Combine
+  const stitchVideosOnServer = useCallback(async (videoUrls: string[]): Promise<string | null> => {
+    if (videoUrls.length <= 1) return videoUrls[0] || null;
+    
+    const comfyUrl = getComfyUrl();
+    console.log(`Stitching ${videoUrls.length} videos on ComfyUI server...`);
+    
+    // Upload all videos to ComfyUI input folder
+    const uploadedFilenames: string[] = [];
+    for (let i = 0; i < videoUrls.length; i++) {
+      const videoUrl = videoUrls[i];
+      const filename = `stitch_input_${Date.now()}_${i}.mp4`;
+      
+      // Fetch video and convert to base64
+      const response = await fetch(videoUrl);
+      const blob = await response.blob();
+      const base64 = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.readAsDataURL(blob);
+      });
+      
+      // Upload to ComfyUI
+      await callComfyUIProxy('upload_video', comfyUrl, { videoData: base64, filename });
+      uploadedFilenames.push(`videos/${filename}`);
+    }
+    
+    // Create VHS Video Combine workflow
+    // Note: This requires VHS (VideoHelperSuite) custom nodes to be installed
+    const stitchWorkflow = {
+      "1": {
+        "class_type": "VHS_LoadVideoPath",
+        "inputs": {
+          "video": uploadedFilenames[0],
+          "force_rate": 0,
+          "force_size": "Disabled",
+          "frame_load_cap": 0,
+          "skip_first_frames": 0,
+          "select_every_nth": 1
+        }
+      }
+    };
+    
+    // Add load nodes for each additional video and combine them
+    let lastCombineNode = "1";
+    for (let i = 1; i < uploadedFilenames.length; i++) {
+      const loadNodeId = String(i * 2 + 1);
+      const combineNodeId = String(i * 2 + 2);
+      
+      // @ts-ignore - dynamic workflow building
+      stitchWorkflow[loadNodeId] = {
+        "class_type": "VHS_LoadVideoPath",
+        "inputs": {
+          "video": uploadedFilenames[i],
+          "force_rate": 0,
+          "force_size": "Disabled",
+          "frame_load_cap": 0,
+          "skip_first_frames": 0,
+          "select_every_nth": 1
+        }
+      };
+      
+      // @ts-ignore - dynamic workflow building
+      stitchWorkflow[combineNodeId] = {
+        "class_type": "VHS_MergeImages",
+        "inputs": {
+          "images_a": [lastCombineNode, 0],
+          "images_b": [loadNodeId, 0]
+        }
+      };
+      
+      lastCombineNode = combineNodeId;
+    }
+    
+    // Add output node
+    const outputNodeId = String(parseInt(lastCombineNode) + 1);
+    // @ts-ignore - dynamic workflow building
+    stitchWorkflow[outputNodeId] = {
+      "class_type": "VHS_VideoCombine",
+      "inputs": {
+        "images": [lastCombineNode, 0],
+        "frame_rate": videoSettings.frameRate,
+        "loop_count": 0,
+        "filename_prefix": "stitched_video",
+        "format": "video/h264-mp4",
+        "pingpong": false,
+        "save_output": true
+      }
+    };
+    
+    try {
+      // Queue the workflow
+      const result = await callComfyUIProxy('queue_prompt', comfyUrl, { prompt: stitchWorkflow });
+      const promptId = result.prompt_id;
+      
+      // Poll for completion
+      let attempts = 0;
+      const maxAttempts = 60;
+      
+      while (attempts < maxAttempts) {
+        await new Promise(r => setTimeout(r, 2000));
+        const history = await callComfyUIProxy('get_history', comfyUrl, { prompt_id: promptId });
+        
+        if (history[promptId]?.outputs?.[outputNodeId]?.gifs?.[0]) {
+          const outputFile = history[promptId].outputs[outputNodeId].gifs[0];
+          const videoResult = await callComfyUIProxy('get_video', comfyUrl, {
+            filename: outputFile.filename,
+            subfolder: outputFile.subfolder || '',
+            type: 'output'
+          });
+          
+          if (videoResult.videoData) {
+            return videoResult.videoData;
+          }
+        }
+        
+        attempts++;
+      }
+      
+      console.warn('Server-side stitching timed out');
+      return null;
+    } catch (err) {
+      console.error('Server-side stitching workflow failed:', err);
+      return null;
+    }
+  }, [getComfyUrl, videoSettings.frameRate]);
+
   // Generate a long video by auto-splitting into clips and stitching
   const generateLongVideo = useCallback(async (
     imageUrl: string,
@@ -767,7 +894,7 @@ export function useComfyUI() {
       settingsOverride?: Partial<VideoSettings>;
       onClipProgress?: (clipIndex: number, totalClips: number, clipVideoUrl: string | null) => void;
     } = {}
-  ): Promise<{ videoUrls: string[]; totalDuration: number }> => {
+  ): Promise<{ videoUrls: string[]; totalDuration: number; stitchedUrl?: string }> => {
     const {
       seed = Math.floor(Math.random() * 2147483647),
       settingsOverride = {},
@@ -816,11 +943,31 @@ export function useComfyUI() {
       }
     }
     
+    // Server-side stitching using VHS Video Combine node
+    if (videoUrls.length > 1) {
+      console.log(`Attempting server-side video stitching of ${videoUrls.length} clips...`);
+      onClipProgress?.(numClips - 1, numClips, null); // Signal stitching phase
+      
+      try {
+        const stitchedUrl = await stitchVideosOnServer(videoUrls);
+        if (stitchedUrl) {
+          console.log('Server-side stitching successful!');
+          return {
+            videoUrls: [stitchedUrl], // Return single stitched video
+            stitchedUrl,
+            totalDuration: numClips * clipDuration,
+          };
+        }
+      } catch (stitchError) {
+        console.warn('Server-side stitching failed, returning individual clips:', stitchError);
+      }
+    }
+    
     return {
       videoUrls,
       totalDuration: numClips * clipDuration,
     };
-  }, [videoSettings, generateVideo]);
+  }, [videoSettings, generateVideo, stitchVideosOnServer]);
 
   // Helper to extract last frame from a video URL as base64
   const extractLastFrameFromVideo = useCallback(async (videoUrl: string): Promise<string | null> => {

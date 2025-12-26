@@ -80,6 +80,55 @@ serve(async (req) => {
         }
         break;
 
+      case 'get_video':
+        // Fetch a video file from ComfyUI output
+        const videoParams = payload as { filename: string; subfolder?: string; type?: string };
+        const videoQueryParams = new URLSearchParams({ 
+          filename: videoParams.filename, 
+          subfolder: videoParams.subfolder || '', 
+          type: videoParams.type || 'output' 
+        });
+        response = await fetch(`${comfyUrl}/view?${videoQueryParams}`, {
+          method: 'GET',
+        });
+        
+        if (response.ok) {
+          // Return video as base64
+          const videoArrayBuffer = await response.arrayBuffer();
+          const videoBase64 = base64Encode(videoArrayBuffer);
+          const videoContentType = response.headers.get('content-type') || 'video/mp4';
+          
+          return new Response(
+            JSON.stringify({ 
+              success: true, 
+              videoData: `data:${videoContentType};base64,${videoBase64}` 
+            }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+        break;
+
+      case 'upload_video':
+        // Upload a video file to ComfyUI input folder
+        const { videoData: uploadVideoData, filename: videoUploadFilename } = payload as { videoData: string; filename: string };
+        
+        // Convert base64 to blob
+        const videoBase64Data = uploadVideoData.replace(/^data:video\/\w+;base64,/, '');
+        const videoBinaryData = Uint8Array.from(atob(videoBase64Data), c => c.charCodeAt(0));
+        
+        // Create form data - upload to input folder
+        const videoFormData = new FormData();
+        const videoBlob = new Blob([videoBinaryData], { type: 'video/mp4' });
+        videoFormData.append('image', videoBlob, videoUploadFilename); // ComfyUI uses 'image' field for all uploads
+        videoFormData.append('overwrite', 'true');
+        videoFormData.append('subfolder', 'videos');
+        
+        response = await fetch(`${comfyUrl}/upload/image`, {
+          method: 'POST',
+          body: videoFormData,
+        });
+        break;
+
       case 'get_models':
         response = await fetch(`${comfyUrl}/object_info/CheckpointLoaderSimple`, {
           method: 'GET',
