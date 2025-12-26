@@ -863,8 +863,12 @@ export function useComfyUI() {
         await new Promise(r => setTimeout(r, 2000));
         const history = await callComfyUIProxy('get_history', comfyUrl, { prompt_id: promptId });
         
-        if (history[promptId]?.outputs?.[outputNodeId]?.gifs?.[0]) {
-          const outputFile = history[promptId].outputs[outputNodeId].gifs[0];
+        // Check for output - VHS_VideoCombine outputs to 'gifs' or 'videos' depending on format
+        const outputs = history[promptId]?.outputs?.[outputNodeId];
+        const outputFile = outputs?.gifs?.[0] || outputs?.videos?.[0];
+        
+        if (outputFile) {
+          console.log('Stitch output found:', outputFile);
           const videoResult = await callComfyUIProxy('get_video', comfyUrl, {
             filename: outputFile.filename,
             subfolder: outputFile.subfolder || '',
