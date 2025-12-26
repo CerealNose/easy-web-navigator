@@ -35,6 +35,7 @@ import {
 import { useSettings, InferenceMode } from "@/contexts/SettingsContext";
 import { useComfyUI } from "@/hooks/useComfyUI";
 import { toast } from "sonner";
+import { VideoSettingsPanel } from "./VideoSettingsPanel";
 
 const MODE_INFO = {
   cloud: {
@@ -397,6 +398,11 @@ export function SettingsPanel() {
                 </div>
               )}
             </Card>
+          )}
+
+          {/* Video Settings - Show for local mode */}
+          {inferenceMode === "local" && isComfyUIConnected && (
+            <VideoSettingsPanel />
           )}
 
           {/* Current Mode Summary */}

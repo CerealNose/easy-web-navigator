@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { useSettings } from "@/contexts/SettingsContext";
+import { useSettings, VideoSettings } from "@/contexts/SettingsContext";
 import { supabase } from "@/integrations/supabase/client";
 
 interface ComfyUIWorkflowResult {
@@ -110,9 +110,9 @@ const createAnimateDiffI2VWorkflow = (
   uploadedImageName: string,  // filename of uploaded image in ComfyUI
   motionPrompt: string,
   seed: number,
-  frames: number = 16,
   hasVHS: boolean = false,
-  checkpointName: string = "dreamshaperXL_lightningDPMSDE.safetensors"
+  checkpointName: string = "dreamshaperXL_lightningDPMSDE.safetensors",
+  videoSettings: VideoSettings
 ) => {
   const baseWorkflow: Record<string, object> = {
     "1": {
@@ -131,7 +131,7 @@ const createAnimateDiffI2VWorkflow = (
     },
     "3": {
       "inputs": {
-        "model_name": "v3_sd15_mm.ckpt"
+        "model_name": videoSettings.motionModel
       },
       "class_type": "ADE_LoadAnimateDiffModel",
       "_meta": { "title": "Load AnimateDiff Model" }
@@ -181,7 +181,7 @@ const createAnimateDiffI2VWorkflow = (
     "8": {
       "inputs": {
         "samples": ["7", 0],
-        "amount": frames
+        "amount": videoSettings.frames
       },
       "class_type": "RepeatLatentBatch",
       "_meta": { "title": "Repeat Latent Batch" }
@@ -189,11 +189,11 @@ const createAnimateDiffI2VWorkflow = (
     "9": {
       "inputs": {
         "seed": seed,
-        "steps": 20,
-        "cfg": 7.5,
-        "sampler_name": "euler",
-        "scheduler": "normal",
-        "denoise": 0.6,
+        "steps": videoSettings.steps,
+        "cfg": videoSettings.cfgScale,
+        "sampler_name": videoSettings.sampler,
+        "scheduler": videoSettings.scheduler,
+        "denoise": videoSettings.denoise,
         "model": ["12", 0],
         "positive": ["5", 0],
         "negative": ["6", 0],
@@ -216,14 +216,14 @@ const createAnimateDiffI2VWorkflow = (
     // Use VHS_VideoCombine for proper video output
     baseWorkflow["11"] = {
       "inputs": {
-        "frame_rate": 8,
+        "frame_rate": videoSettings.frameRate,
         "loop_count": 0,
         "filename_prefix": "AnimateDiff",
-        "format": "video/h264-mp4",
+        "format": videoSettings.format,
         "pix_fmt": "yuv420p",
-        "crf": 19,
+        "crf": videoSettings.quality,
         "save_metadata": true,
-        "pingpong": false,
+        "pingpong": videoSettings.pingpong,
         "save_output": true,
         "images": ["10", 0]
       },
@@ -263,7 +263,7 @@ async function callComfyUIProxy(action: string, comfyUrl: string, payload?: obje
 }
 
 export function useComfyUI() {
-  const { comfyUIConfig, isComfyUIConnected, setIsComfyUIConnected } = useSettings();
+  const { comfyUIConfig, isComfyUIConnected, setIsComfyUIConnected, videoSettings } = useSettings();
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -547,13 +547,16 @@ export function useComfyUI() {
     motionPrompt: string,
     options: {
       seed?: number;
-      frames?: number;
+      settingsOverride?: Partial<VideoSettings>;
     } = {}
   ): Promise<ComfyUIVideoResult> => {
     const {
       seed = Math.floor(Math.random() * 2147483647),
-      frames = 16,
+      settingsOverride = {},
     } = options;
+    
+    // Merge current video settings with any overrides
+    const settings = { ...videoSettings, ...settingsOverride };
 
     // Check connection first
     const connected = await checkConnection();
@@ -599,8 +602,15 @@ export function useComfyUI() {
       const uploadFilename = `input_${Date.now()}.png`;
       const uploadedName = await uploadImage(imageUrl, uploadFilename);
       
-      // Create AnimateDiff workflow with uploaded image filename and SD1.5 checkpoint
-      const workflow = createAnimateDiffI2VWorkflow(uploadedName, motionPrompt, seed, frames, hasVHS, checkpoint);
+      // Create AnimateDiff workflow with uploaded image filename and video settings
+      const workflow = createAnimateDiffI2VWorkflow(
+        uploadedName, 
+        motionPrompt, 
+        seed, 
+        hasVHS, 
+        checkpoint,
+        settings
+      );
 
       setVideoProgress(5);
       const promptId = await queuePrompt(workflow);
@@ -613,7 +623,7 @@ export function useComfyUI() {
     } finally {
       setIsGeneratingVideo(false);
     }
-  }, [checkConnection, checkAnimateDiffAvailable, checkVHSAvailable, uploadImage, queuePrompt, pollForVideoCompletion, getModels, comfyUIConfig.selectedCheckpoint]);
+  }, [checkConnection, checkAnimateDiffAvailable, checkVHSAvailable, uploadImage, queuePrompt, pollForVideoCompletion, getModels, videoSettings]);
 
   // Check system status
   const getSystemStats = useCallback(async () => {
