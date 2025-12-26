@@ -1529,29 +1529,49 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
           const sizeConfig = VIDEO_SIZES[videoSize];
           const fpsValue = FPS_OPTIONS[videoFps].value;
           
-          // Prepare video generation payload with unique motion for each scene
-          // Add scene-specific motion variation to prevent static/identical videos
-          // More varied motion prompts for long videos (48 scenes for 4 min @ 5s each)
-          const motionVariations = [
-            "gentle forward camera push with subtle parallax",
-            "slow pan left to right across scene", 
-            "subtle zoom out revealing the full scene",
-            "smooth dolly forward movement",
-            "slow tracking shot moving right",
-            "gentle parallax shift with depth layers",
-            "subtle floating camera drift upward",
-            "slow reveal with increasing depth of field",
-            "smooth arc movement around subject",
-            "gentle pull back with widening view",
-            "slow pan right to left exploring scene",
-            "subtle push in focusing on details",
-            "dreamy floating drift motion",
-            "cinematic dolly zoom effect",
-            "gentle sway with natural movement",
-            "slow diagonal drift top-left to bottom-right",
-          ];
-          const sceneMotion = motionVariations[i % motionVariations.length];
-          const videoPrompt = `${scenePrompt}, ${motionPrompt}, ${sceneMotion}`;
+          // Analyze the image and generate a motion-aware video prompt
+          let videoPrompt = `${scenePrompt}, ${motionPrompt}`;
+          
+          try {
+            console.log(`Scene ${i + 1}: Analyzing image for video motion prompt...`);
+            const lyricText = sceneList[i].section;
+            
+            const videoPromptRes = await supabase.functions.invoke("generate-video-prompt", {
+              body: {
+                imageUrl: imageUrl,
+                motionHint: motionPrompt,
+                lyricContext: lyricText,
+              },
+            });
+            
+            if (videoPromptRes.data?.videoPrompt) {
+              videoPrompt = videoPromptRes.data.videoPrompt;
+              console.log(`Scene ${i + 1}: AI video prompt:`, videoPrompt.slice(0, 100) + "...");
+            }
+          } catch (videoPromptError) {
+            console.warn(`Scene ${i + 1}: Failed to generate video prompt from image, using fallback`, videoPromptError);
+            // Fall back to motion variations
+            const motionVariations = [
+              "gentle forward camera push with subtle parallax",
+              "slow pan left to right across scene", 
+              "subtle zoom out revealing the full scene",
+              "smooth dolly forward movement",
+              "slow tracking shot moving right",
+              "gentle parallax shift with depth layers",
+              "subtle floating camera drift upward",
+              "slow reveal with increasing depth of field",
+              "smooth arc movement around subject",
+              "gentle pull back with widening view",
+              "slow pan right to left exploring scene",
+              "subtle push in focusing on details",
+              "dreamy floating drift motion",
+              "cinematic dolly zoom effect",
+              "gentle sway with natural movement",
+              "slow diagonal drift top-left to bottom-right",
+            ];
+            const sceneMotion = motionVariations[i % motionVariations.length];
+            videoPrompt = `${scenePrompt}, ${motionPrompt}, ${sceneMotion}`;
+          }
           
           // Use unique seed per scene for video (same base + offset for consistency with variation)
           const videoSeed = batchSeed ? batchSeed + i * 100 : undefined;
