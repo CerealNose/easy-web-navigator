@@ -17,11 +17,72 @@ export interface VideoSettings {
   frameRate: number;
   motionModel: string;
   
+  // Video size
+  width: number;
+  height: number;
+  
   // Output settings
   format: string;
   quality: number; // CRF for h264 (lower = better, 15-25 typical)
   pingpong: boolean;
 }
+
+// Setting info with descriptions and recommendations
+export interface SettingInfo {
+  name: string;
+  description: string;
+  recommendation: string;
+  rating?: number; // 1-5 for quality/speed balance
+}
+
+export const SAMPLER_INFO: Record<string, SettingInfo> = {
+  euler: { name: "Euler", description: "Fast, simple sampler. Good baseline.", recommendation: "★★★★☆ Best for speed", rating: 4 },
+  euler_ancestral: { name: "Euler Ancestral", description: "Adds randomness for more variety.", recommendation: "★★★☆☆ Good variety", rating: 3 },
+  dpmpp_2m: { name: "DPM++ 2M", description: "High quality with good convergence.", recommendation: "★★★★★ Recommended", rating: 5 },
+  dpmpp_2m_sde: { name: "DPM++ 2M SDE", description: "Best quality, stochastic. Great for details.", recommendation: "★★★★★ Best quality", rating: 5 },
+  dpmpp_sde: { name: "DPM++ SDE", description: "Stochastic sampler, good variety.", recommendation: "★★★★☆ Good balance", rating: 4 },
+  heun: { name: "Heun", description: "More accurate but slower.", recommendation: "★★★☆☆ Accurate", rating: 3 },
+  ddim: { name: "DDIM", description: "Deterministic, consistent results.", recommendation: "★★★☆☆ Consistent", rating: 3 },
+  lcm: { name: "LCM", description: "Very fast, needs LCM LoRA.", recommendation: "★★★★☆ Ultra fast", rating: 4 },
+  uni_pc: { name: "UniPC", description: "Fast with good quality.", recommendation: "★★★★☆ Fast & good", rating: 4 },
+};
+
+export const SCHEDULER_INFO: Record<string, SettingInfo> = {
+  normal: { name: "Normal", description: "Standard linear schedule.", recommendation: "★★★☆☆ Default", rating: 3 },
+  karras: { name: "Karras", description: "Better noise schedule, sharper results.", recommendation: "★★★★★ Recommended", rating: 5 },
+  exponential: { name: "Exponential", description: "Smooth transitions.", recommendation: "★★★★☆ Smooth", rating: 4 },
+  sgm_uniform: { name: "SGM Uniform", description: "Uniform steps, predictable.", recommendation: "★★★☆☆ Predictable", rating: 3 },
+  simple: { name: "Simple", description: "Basic linear schedule.", recommendation: "★★☆☆☆ Basic", rating: 2 },
+  ddim_uniform: { name: "DDIM Uniform", description: "For DDIM sampler.", recommendation: "★★★☆☆ DDIM only", rating: 3 },
+  beta: { name: "Beta", description: "Beta distribution schedule.", recommendation: "★★★☆☆ Experimental", rating: 3 },
+};
+
+export const CFG_INFO: SettingInfo = {
+  name: "CFG Scale",
+  description: "How closely to follow the prompt. Higher = more literal, lower = more creative.",
+  recommendation: "★★★★☆ 6-8 recommended. Above 10 can cause artifacts.",
+};
+
+export const STEPS_INFO: SettingInfo = {
+  name: "Steps",
+  description: "Number of denoising steps. More = better quality but slower.",
+  recommendation: "★★★★☆ 20-30 for quality. 10-15 for speed.",
+};
+
+export const DENOISE_INFO: SettingInfo = {
+  name: "Denoise Strength",
+  description: "How much to change from input. Lower = more faithful to image.",
+  recommendation: "★★★★☆ 0.5-0.7 recommended. Below 0.4 = minimal motion.",
+};
+
+export const VIDEO_SIZE_OPTIONS = [
+  { value: "512x512", width: 512, height: 512, label: "512×512 (1:1)", description: "Square, fastest" },
+  { value: "512x768", width: 512, height: 768, label: "512×768 (2:3)", description: "Portrait" },
+  { value: "768x512", width: 768, height: 512, label: "768×512 (3:2)", description: "Landscape" },
+  { value: "576x1024", width: 576, height: 1024, label: "576×1024 (9:16)", description: "Mobile/TikTok" },
+  { value: "1024x576", width: 1024, height: 576, label: "1024×576 (16:9)", description: "Widescreen" },
+  { value: "768x768", width: 768, height: 768, label: "768×768 (1:1)", description: "Large square" },
+];
 
 export interface VideoPreset {
   id: string;
@@ -40,6 +101,8 @@ export const DEFAULT_VIDEO_SETTINGS: VideoSettings = {
   frames: 16,
   frameRate: 8,
   motionModel: "v3_sd15_mm.ckpt",
+  width: 512,
+  height: 512,
   format: "video/h264-mp4",
   quality: 19,
   pingpong: false,
@@ -60,6 +123,8 @@ export const VIDEO_PRESETS: VideoPreset[] = [
       frames: 12,
       frameRate: 8,
       motionModel: "v3_sd15_mm.ckpt",
+      width: 512,
+      height: 512,
       format: "video/h264-mp4",
       quality: 23,
       pingpong: false,
@@ -78,6 +143,8 @@ export const VIDEO_PRESETS: VideoPreset[] = [
       frames: 16,
       frameRate: 8,
       motionModel: "v3_sd15_mm.ckpt",
+      width: 512,
+      height: 512,
       format: "video/h264-mp4",
       quality: 19,
       pingpong: false,
@@ -96,6 +163,8 @@ export const VIDEO_PRESETS: VideoPreset[] = [
       frames: 24,
       frameRate: 12,
       motionModel: "v3_sd15_mm.ckpt",
+      width: 768,
+      height: 768,
       format: "video/h264-mp4",
       quality: 15,
       pingpong: false,
@@ -114,6 +183,8 @@ export const VIDEO_PRESETS: VideoPreset[] = [
       frames: 24,
       frameRate: 12,
       motionModel: "v3_sd15_mm.ckpt",
+      width: 512,
+      height: 512,
       format: "video/h264-mp4",
       quality: 17,
       pingpong: false,
@@ -132,6 +203,8 @@ export const VIDEO_PRESETS: VideoPreset[] = [
       frames: 16,
       frameRate: 10,
       motionModel: "v3_sd15_mm.ckpt",
+      width: 512,
+      height: 512,
       format: "image/gif",
       quality: 19,
       pingpong: true,
@@ -150,6 +223,8 @@ export const VIDEO_PRESETS: VideoPreset[] = [
       frames: 32,
       frameRate: 8,
       motionModel: "v3_sd15_mm.ckpt",
+      width: 1024,
+      height: 576,
       format: "video/h264-mp4",
       quality: 15,
       pingpong: false,
