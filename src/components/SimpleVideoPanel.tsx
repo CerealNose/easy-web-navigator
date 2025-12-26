@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -34,6 +34,7 @@ interface Scene {
 }
 
 export function SimpleVideoPanel() {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
@@ -44,13 +45,15 @@ export function SimpleVideoPanel() {
   const { generateVideo, isGenerating: isGeneratingVideo, progress: videoProgress, progressMessage } = useWanVideo();
   const { stitchVideos, isStitching, progress: stitchProgress } = useVideoStitcher();
 
-  // Add image from file
+  // Add image/video from file
   const handleImageUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    if (!files) return;
+    if (!files || files.length === 0) return;
+
+    toast.success(`Selected ${files.length} file(s)`);
 
     const newScenes: Scene[] = [];
-    
+
     Array.from(files).forEach((file) => {
       const reader = new FileReader();
       reader.onload = (event) => {
@@ -63,14 +66,17 @@ export function SimpleVideoPanel() {
           duration: 5,
           status: 'pending'
         });
-        
+
         if (newScenes.length === files.length) {
           setScenes(prev => [...prev, ...newScenes]);
         }
       };
+      reader.onerror = () => {
+        toast.error(`Failed to read file: ${file.name}`);
+      };
       reader.readAsDataURL(file);
     });
-    
+
     e.target.value = '';
   }, []);
 
@@ -240,21 +246,34 @@ export function SimpleVideoPanel() {
 
       {/* Upload area */}
       <div className="flex gap-2">
-        <label className="flex-1">
-          <input
-            type="file"
-            accept="image/*,video/*"
-            multiple
-            onChange={handleImageUpload}
-            className="hidden"
-          />
-          <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-6 text-center cursor-pointer hover:border-primary/50 transition-colors">
-            <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">
-              Drop images or click to upload
-            </p>
-          </div>
-        </label>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*,video/*"
+          multiple
+          onChange={handleImageUpload}
+          className="hidden"
+        />
+
+        <div
+          role="button"
+          tabIndex={0}
+          className="flex-1 border-2 border-dashed border-muted-foreground/25 rounded-lg p-6 text-center cursor-pointer hover:border-primary/50 transition-colors"
+          onClick={() => fileInputRef.current?.click()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              fileInputRef.current?.click();
+            }
+          }}
+          aria-label="Upload images or videos"
+        >
+          <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">
+            Drop images/videos or click to upload
+          </p>
+        </div>
+
         <Button variant="outline" onClick={addEmptyScene}>
           <Plus className="h-4 w-4 mr-2" />
           Add Scene
