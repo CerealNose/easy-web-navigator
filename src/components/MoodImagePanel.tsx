@@ -146,9 +146,15 @@ export function MoodImagePanel({ prompt, themes, onPromptChange }: MoodImagePane
           toast.success(`Video generated locally! (seed: ${result.seed})`);
           return;
         } catch (localError) {
-          // Check if AnimateDiff isn't installed - fall back to cloud
-          if (localError instanceof Error && localError.message === "ANIMATEDIFF_NOT_INSTALLED") {
-            toast.warning("AnimateDiff not installed locally, falling back to cloud...");
+          // Check if AnimateDiff isn't installed or no SD1.5 checkpoint - fall back to cloud
+          if (localError instanceof Error) {
+            if (localError.message === "ANIMATEDIFF_NOT_INSTALLED") {
+              toast.warning("AnimateDiff not installed locally, falling back to cloud...");
+            } else if (localError.message === "NO_SD15_CHECKPOINT") {
+              toast.warning("No SD1.5 checkpoint for AnimateDiff (only SDXL found), falling back to cloud...");
+            } else {
+              throw localError;
+            }
           } else {
             throw localError;
           }

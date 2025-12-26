@@ -545,12 +545,21 @@ export function useComfyUI() {
     setVideoProgress(0);
 
     try {
-      // Get available checkpoints and use the first one
-      const availableCheckpoints = await getModels();
-      const checkpoint = availableCheckpoints[0] || comfyUIConfig.selectedCheckpoint;
+      // Get available checkpoints and find an SD1.5 compatible one
+      // AnimateDiff v3_sd15_mm.ckpt only works with SD1.5 checkpoints, not SDXL
+      const availableCheckpoints: string[] = await getModels();
+      
+      // Filter for SD1.5 compatible checkpoints (exclude XL, SDXL, Juggernaut XL, etc.)
+      const sd15Checkpoints = availableCheckpoints.filter((name: string) => {
+        const lowerName = name.toLowerCase();
+        return !lowerName.includes('xl') && !lowerName.includes('sdxl') && !lowerName.includes('turbo');
+      });
+      
+      const checkpoint = sd15Checkpoints[0];
       
       if (!checkpoint) {
-        throw new Error("No checkpoint available. Please configure a checkpoint in ComfyUI.");
+        // No SD1.5 checkpoint available - AnimateDiff won't work
+        throw new Error("NO_SD15_CHECKPOINT");
       }
       
       // Upload the image to ComfyUI first
@@ -558,7 +567,7 @@ export function useComfyUI() {
       const uploadFilename = `input_${Date.now()}.png`;
       const uploadedName = await uploadImage(imageUrl, uploadFilename);
       
-      // Create AnimateDiff workflow with uploaded image filename and correct checkpoint
+      // Create AnimateDiff workflow with uploaded image filename and SD1.5 checkpoint
       const workflow = createAnimateDiffI2VWorkflow(uploadedName, motionPrompt, seed, frames, hasVHS, checkpoint);
 
       setVideoProgress(5);
