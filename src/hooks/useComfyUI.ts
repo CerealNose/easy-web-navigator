@@ -113,6 +113,7 @@ const createWorkflowWithCheckpoint = (
 // AnimateDiff Image-to-Video workflow for local video generation
 // This requires AnimateDiff custom nodes installed in ComfyUI
 // If VHS is not installed, it outputs frames that are combined client-side
+// Supports optional motion LoRAs for camera movement effects
 const createAnimateDiffI2VWorkflow = (
   uploadedImageName: string,  // filename of uploaded image in ComfyUI
   motionPrompt: string,
@@ -121,6 +122,8 @@ const createAnimateDiffI2VWorkflow = (
   checkpointName: string = "dreamshaperXL_lightningDPMSDE.safetensors",
   videoSettings: VideoSettings
 ) => {
+  const useMotionLora = videoSettings.motionLora && videoSettings.motionLora !== "none";
+  
   const baseWorkflow: Record<string, object> = {
     "1": {
       "inputs": {
@@ -142,8 +145,35 @@ const createAnimateDiffI2VWorkflow = (
       },
       "class_type": "ADE_LoadAnimateDiffModel",
       "_meta": { "title": "Load AnimateDiff Model" }
-    },
-    "4": {
+    }
+  };
+  
+  // If using motion LoRA, add the motion LoRA loader node
+  if (useMotionLora) {
+    // Load motion LoRA and apply it to the motion model
+    baseWorkflow["13"] = {
+      "inputs": {
+        "lora_name": videoSettings.motionLora,
+        "strength": videoSettings.motionLoraStrength
+      },
+      "class_type": "ADE_LoadAnimateDiffModelWithCameraCtrl",
+      "_meta": { "title": "Load Motion LoRA" }
+    };
+    
+    // Apply motion model with LoRA
+    baseWorkflow["4"] = {
+      "inputs": {
+        "motion_model": ["3", 0],
+        "motion_lora": ["13", 0],
+        "start_percent": 0,
+        "end_percent": 1
+      },
+      "class_type": "ADE_ApplyAnimateDiffModelWithCameraCtrl",
+      "_meta": { "title": "Apply AnimateDiff + Motion LoRA" }
+    };
+  } else {
+    // Standard motion model application without LoRA
+    baseWorkflow["4"] = {
       "inputs": {
         "motion_model": ["3", 0],
         "start_percent": 0,
@@ -151,72 +181,80 @@ const createAnimateDiffI2VWorkflow = (
       },
       "class_type": "ADE_ApplyAnimateDiffModel",
       "_meta": { "title": "Apply AnimateDiff Model" }
+    };
+  }
+  
+  // Continue with rest of workflow
+  baseWorkflow["12"] = {
+    "inputs": {
+      "model": ["2", 0],
+      "beta_schedule": "autoselect",
+      "m_models": ["4", 0]
     },
-    "12": {
-      "inputs": {
-        "model": ["2", 0],
-        "beta_schedule": "autoselect",
-        "m_models": ["4", 0]
-      },
-      "class_type": "ADE_UseEvolvedSampling",
-      "_meta": { "title": "Use Evolved Sampling" }
+    "class_type": "ADE_UseEvolvedSampling",
+    "_meta": { "title": "Use Evolved Sampling" }
+  };
+  
+  baseWorkflow["5"] = {
+    "inputs": {
+      "text": motionPrompt,
+      "clip": ["2", 1]
     },
-    "5": {
-      "inputs": {
-        "text": motionPrompt,
-        "clip": ["2", 1]
-      },
-      "class_type": "CLIPTextEncode",
-      "_meta": { "title": "CLIP Text Encode (Positive)" }
+    "class_type": "CLIPTextEncode",
+    "_meta": { "title": "CLIP Text Encode (Positive)" }
+  };
+  
+  baseWorkflow["6"] = {
+    "inputs": {
+      "text": "static, still, frozen, bad quality, blurry",
+      "clip": ["2", 1]
     },
-    "6": {
-      "inputs": {
-        "text": "static, still, frozen, bad quality, blurry",
-        "clip": ["2", 1]
-      },
-      "class_type": "CLIPTextEncode",
-      "_meta": { "title": "CLIP Text Encode (Negative)" }
+    "class_type": "CLIPTextEncode",
+    "_meta": { "title": "CLIP Text Encode (Negative)" }
+  };
+  
+  baseWorkflow["7"] = {
+    "inputs": {
+      "pixels": ["1", 0],
+      "vae": ["2", 2]
     },
-    "7": {
-      "inputs": {
-        "pixels": ["1", 0],
-        "vae": ["2", 2]
-      },
-      "class_type": "VAEEncode",
-      "_meta": { "title": "VAE Encode" }
+    "class_type": "VAEEncode",
+    "_meta": { "title": "VAE Encode" }
+  };
+  
+  baseWorkflow["8"] = {
+    "inputs": {
+      "samples": ["7", 0],
+      "amount": videoSettings.frames
     },
-    "8": {
-      "inputs": {
-        "samples": ["7", 0],
-        "amount": videoSettings.frames
-      },
-      "class_type": "RepeatLatentBatch",
-      "_meta": { "title": "Repeat Latent Batch" }
+    "class_type": "RepeatLatentBatch",
+    "_meta": { "title": "Repeat Latent Batch" }
+  };
+  
+  baseWorkflow["9"] = {
+    "inputs": {
+      "seed": seed,
+      "steps": videoSettings.steps,
+      "cfg": videoSettings.cfgScale,
+      "sampler_name": videoSettings.sampler,
+      "scheduler": videoSettings.scheduler,
+      "denoise": videoSettings.denoise,
+      "model": ["12", 0],
+      "positive": ["5", 0],
+      "negative": ["6", 0],
+      "latent_image": ["8", 0]
     },
-    "9": {
-      "inputs": {
-        "seed": seed,
-        "steps": videoSettings.steps,
-        "cfg": videoSettings.cfgScale,
-        "sampler_name": videoSettings.sampler,
-        "scheduler": videoSettings.scheduler,
-        "denoise": videoSettings.denoise,
-        "model": ["12", 0],
-        "positive": ["5", 0],
-        "negative": ["6", 0],
-        "latent_image": ["8", 0]
-      },
-      "class_type": "KSampler",
-      "_meta": { "title": "KSampler" }
+    "class_type": "KSampler",
+    "_meta": { "title": "KSampler" }
+  };
+  
+  baseWorkflow["10"] = {
+    "inputs": {
+      "samples": ["9", 0],
+      "vae": ["2", 2]
     },
-    "10": {
-      "inputs": {
-        "samples": ["9", 0],
-        "vae": ["2", 2]
-      },
-      "class_type": "VAEDecode",
-      "_meta": { "title": "VAE Decode" }
-    }
+    "class_type": "VAEDecode",
+    "_meta": { "title": "VAE Decode" }
   };
 
   if (hasVHS) {
