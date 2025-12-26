@@ -216,6 +216,10 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
   const [useManualDuration, setUseManualDuration] = useState(false);
   const [manualTotalDuration, setManualTotalDuration] = useState(240); // 4 minutes default
   const [manualSceneDuration, setManualSceneDuration] = useState(10); // 10 seconds per scene
+  
+  // Quick target generation state
+  const [isGeneratingQuickTarget, setIsGeneratingQuickTarget] = useState(false);
+  const [quickTargetProgress, setQuickTargetProgress] = useState<{ current: number; total: number } | null>(null);
 
   // Ref to signal cancellation to the generation loop
   const cancelGenerationRef = useRef(false);
@@ -736,6 +740,160 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
   const clearAllImages = () => {
     uploadedImages.forEach(img => URL.revokeObjectURL(img.preview));
     setUploadedImages([]);
+  };
+  
+  // Generate images for quick target duration
+  const generateQuickTargetImages = async (targetSeconds: number) => {
+    // Validate prerequisites
+    if (!lyricsAnalysis || !lyricsAnalysis.storylines || lyricsAnalysis.storylines.length === 0) {
+      toast.error("Please analyze lyrics first to generate scene images");
+      return;
+    }
+    
+    const selectedStoryline = lyricsAnalysis.storylines[selectedStorylineIndex];
+    if (!selectedStoryline) {
+      toast.error("Please select a storyline first");
+      return;
+    }
+    
+    const imagesNeeded = Math.ceil(targetSeconds / manualSceneDuration);
+    
+    // Split lyrics into scenes
+    const lyricsLines = lyricsContent
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0 && !line.match(/^\[.*\]$/)); // Remove empty lines and section markers
+    
+    // Distribute lyrics across scenes
+    const sceneLyrics: string[] = [];
+    const linesPerScene = Math.max(1, Math.ceil(lyricsLines.length / imagesNeeded));
+    
+    for (let i = 0; i < imagesNeeded; i++) {
+      const startIdx = i * linesPerScene;
+      const endIdx = Math.min(startIdx + linesPerScene, lyricsLines.length);
+      const sceneText = lyricsLines.slice(startIdx, endIdx).join(' ') || `Scene ${i + 1}`;
+      sceneLyrics.push(sceneText);
+    }
+    
+    setIsGeneratingQuickTarget(true);
+    setQuickTargetProgress({ current: 0, total: imagesNeeded });
+    
+    // Clear existing uploaded images
+    uploadedImages.forEach(img => URL.revokeObjectURL(img.preview));
+    setUploadedImages([]);
+    
+    // Enable manual duration mode
+    setUseManualDuration(true);
+    
+    const generatedImages: UploadedImage[] = [];
+    const stylePrefix = getStylePrefix();
+    
+    try {
+      toast.info(`Generating ${imagesNeeded} scene images for ${Math.floor(targetSeconds / 60)} minute video...`);
+      
+      // Generate seed for consistency if enabled
+      const baseSeedForRun = useConsistentSeed ? (baseSeed ?? Math.floor(Math.random() * 2147483647)) : null;
+      if (useConsistentSeed && !baseSeed) {
+        setBaseSeed(baseSeedForRun);
+      }
+      
+      for (let i = 0; i < imagesNeeded; i++) {
+        const lyricText = sceneLyrics[i] || `Scene ${i + 1}`;
+        
+        // Calculate narrative position
+        const progress = i / imagesNeeded;
+        let narrativeBeat = "";
+        if (progress < 0.2) narrativeBeat = "Opening/Introduction - establish the world and protagonist";
+        else if (progress < 0.4) narrativeBeat = "Rising action - building tension and stakes";
+        else if (progress < 0.6) narrativeBeat = "Midpoint/Climax - peak emotional intensity";
+        else if (progress < 0.8) narrativeBeat = "Falling action - consequences and reflection";
+        else narrativeBeat = "Resolution/Conclusion - emotional resolution";
+        
+        // Generate scene prompt using AI
+        let scenePrompt = `${stylePrefix}, ${lyricText.slice(0, 100)}`;
+        
+        try {
+          const { data: promptData, error: promptError } = await supabase.functions.invoke('generate-scene-prompt', {
+            body: {
+              lyricLine: lyricText,
+              sceneIndex: i,
+              totalScenes: imagesNeeded,
+              styleHint: `${selectedStoryline.cinematicStyle || ''} ${selectedStoryline.colorPalette || ''}`,
+              previousPrompt: generatedImages.length > 0 ? scenePrompt : "",
+              storyline: selectedStoryline,
+              narrativeBeat,
+              useSilhouetteMode
+            }
+          });
+          
+          if (!promptError && promptData?.prompt) {
+            scenePrompt = promptData.prompt;
+          }
+        } catch (promptErr) {
+          console.warn(`Scene ${i + 1} prompt generation failed, using fallback:`, promptErr);
+        }
+        
+        // Determine dimensions based on aspect ratio
+        let width = 1280, height = 720;
+        if (aspectRatio === "9:16") { width = 720; height = 1280; }
+        else if (aspectRatio === "1:1") { width = 1024; height = 1024; }
+        
+        // Generate image
+        const seed = baseSeedForRun ? baseSeedForRun + i : undefined;
+        
+        const { data: imageData, error: imageError } = await supabase.functions.invoke('generate-image', {
+          body: {
+            prompt: scenePrompt,
+            seed,
+            width,
+            height,
+            quality: imageQuality[0]
+          }
+        });
+        
+        if (imageError) {
+          console.error(`Failed to generate image ${i + 1}:`, imageError);
+          toast.error(`Failed to generate image ${i + 1}`);
+          continue;
+        }
+        
+        if (imageData?.imageUrl) {
+          // Fetch the image and convert to blob for local preview
+          try {
+            const imageResponse = await fetch(imageData.imageUrl);
+            const blob = await imageResponse.blob();
+            const file = new File([blob], `scene_${i + 1}.webp`, { type: 'image/webp' });
+            const preview = URL.createObjectURL(blob);
+            
+            generatedImages.push({
+              file,
+              preview,
+              name: `Scene ${i + 1} - ${lyricText.slice(0, 20)}...`
+            });
+          } catch (fetchErr) {
+            console.error(`Failed to fetch generated image ${i + 1}:`, fetchErr);
+          }
+        }
+        
+        setQuickTargetProgress({ current: i + 1, total: imagesNeeded });
+        setUploadedImages([...generatedImages]);
+        
+        // Small delay to avoid rate limiting
+        if (i < imagesNeeded - 1) {
+          await new Promise(r => setTimeout(r, 500));
+        }
+      }
+      
+      setUploadedImages(generatedImages);
+      toast.success(`Generated ${generatedImages.length} scene images for ${Math.floor(targetSeconds / 60)} min video!`);
+      
+    } catch (err) {
+      console.error("Quick target generation error:", err);
+      toast.error("Failed to generate scene images");
+    } finally {
+      setIsGeneratingQuickTarget(false);
+      setQuickTargetProgress(null);
+    }
   };
 
   // Match a line of text to its parent section by checking if the section contains this text
@@ -2022,26 +2180,25 @@ Generated by LyricVision on ${new Date().toLocaleDateString()}
               </div>
             )}
             
-            {/* Manual Duration Mode - show when no schedule/sections but have images */}
-            {uploadedImages.length > 0 && uploadedSchedule.length === 0 && sections.length === 0 && (
+            {/* Manual Duration Mode & Quick Generate */}
+            {(uploadedImages.length > 0 || lyricsAnalysis) && uploadedSchedule.length === 0 && sections.length === 0 && (
               <div className="mt-4 p-4 rounded-lg bg-muted/30 border border-border/50 space-y-4">
-                <div className="flex items-center gap-3">
-                  <Switch
-                    id="manual-duration"
-                    checked={useManualDuration}
-                    onCheckedChange={setUseManualDuration}
-                  />
-                  <Label htmlFor="manual-duration" className="text-sm font-medium cursor-pointer">
-                    Manual Duration Mode
-                  </Label>
-                </div>
-                
-                {useManualDuration && (
-                  <div className="space-y-4">
+                {/* Quick Generate from Lyrics */}
+                {lyricsAnalysis && lyricsAnalysis.storylines && lyricsAnalysis.storylines.length > 0 && (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-secondary" />
+                      <Label className="text-sm font-medium">Quick Generate</Label>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Click a duration to auto-generate scene images from your lyrics & storyline:
+                    </p>
+                    
+                    {/* Scene Duration Control */}
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
-                        <Label className="text-sm text-muted-foreground">Scene Duration (per clip)</Label>
-                        <span className="text-sm font-mono text-primary">{manualSceneDuration}s</span>
+                        <Label className="text-xs text-muted-foreground">Seconds per clip:</Label>
+                        <span className="text-xs font-mono text-primary">{manualSceneDuration}s</span>
                       </div>
                       <Slider
                         value={[manualSceneDuration]}
@@ -2050,53 +2207,131 @@ Generated by LyricVision on ${new Date().toLocaleDateString()}
                         max={10}
                         step={1}
                         className="w-full"
+                        disabled={isGeneratingQuickTarget}
                       />
-                      <p className="text-xs text-muted-foreground">
-                        Video API limit: 3-10 seconds per clip. Frame continuity chains clips together.
-                      </p>
                     </div>
                     
-                    <div className="p-3 rounded-lg bg-primary/10 border border-primary/20 space-y-2">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">Total Video Duration:</span>
-                        <span className="font-mono font-semibold text-primary text-lg">
-                          {Math.floor((uploadedImages.length * manualSceneDuration) / 60)}:{String(Math.round((uploadedImages.length * manualSceneDuration) % 60)).padStart(2, '0')}
-                        </span>
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {uploadedImages.length} images × {manualSceneDuration}s = {uploadedImages.length * manualSceneDuration}s
-                      </div>
+                    {/* Clickable Duration Targets */}
+                    <div className="grid grid-cols-4 gap-2 text-xs">
+                      {[
+                        { label: "1 min", seconds: 60 },
+                        { label: "4 min", seconds: 240 },
+                        { label: "10 min", seconds: 600 },
+                        { label: "30 min", seconds: 1800 },
+                      ].map(({ label, seconds }) => {
+                        const imagesNeeded = Math.ceil(seconds / manualSceneDuration);
+                        const isMet = uploadedImages.length >= imagesNeeded;
+                        const isGenerating = isGeneratingQuickTarget && quickTargetProgress;
+                        
+                        return (
+                          <button
+                            key={label}
+                            onClick={() => generateQuickTargetImages(seconds)}
+                            disabled={isGeneratingQuickTarget}
+                            className={`p-3 rounded-lg text-center border transition-all ${
+                              isMet 
+                                ? 'bg-green-500/10 border-green-500/30 text-green-600' 
+                                : 'bg-muted/30 border-border/50 hover:border-primary/50 hover:bg-primary/10 cursor-pointer'
+                            } ${isGeneratingQuickTarget ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          >
+                            <div className="font-semibold">{label}</div>
+                            <div className="text-muted-foreground">{imagesNeeded} imgs</div>
+                            {!isMet && !isGenerating && (
+                              <div className="text-[10px] text-primary mt-1">Click to generate</div>
+                            )}
+                            {isMet && (
+                              <div className="text-[10px] text-green-500 mt-1">✓ Ready</div>
+                            )}
+                          </button>
+                        );
+                      })}
                     </div>
                     
-                    {/* Duration targets */}
-                    <div className="space-y-2">
-                      <Label className="text-xs text-muted-foreground">Quick targets (images needed at {manualSceneDuration}s/clip):</Label>
-                      <div className="grid grid-cols-4 gap-2 text-xs">
-                        {[
-                          { label: "1 min", seconds: 60 },
-                          { label: "4 min", seconds: 240 },
-                          { label: "10 min", seconds: 600 },
-                          { label: "30 min", seconds: 1800 },
-                        ].map(({ label, seconds }) => {
-                          const imagesNeeded = Math.ceil(seconds / manualSceneDuration);
-                          const isMet = uploadedImages.length >= imagesNeeded;
-                          return (
-                            <div 
-                              key={label}
-                              className={`p-2 rounded text-center border ${isMet ? 'bg-green-500/10 border-green-500/30 text-green-600' : 'bg-muted/30 border-border/50'}`}
-                            >
-                              <div className="font-semibold">{label}</div>
-                              <div className="text-muted-foreground">{imagesNeeded} imgs</div>
-                            </div>
-                          );
-                        })}
+                    {/* Generation Progress */}
+                    {isGeneratingQuickTarget && quickTargetProgress && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="flex items-center gap-2">
+                            <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                            Generating images...
+                          </span>
+                          <span className="font-mono text-primary">
+                            {quickTargetProgress.current}/{quickTargetProgress.total}
+                          </span>
+                        </div>
+                        <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-primary transition-all duration-300"
+                            style={{ width: `${(quickTargetProgress.current / quickTargetProgress.total) * 100}%` }}
+                          />
+                        </div>
                       </div>
-                    </div>
-                    
-                    <p className="text-xs text-muted-foreground/80">
-                      Max supported: 30 minutes ({Math.ceil(1800 / manualSceneDuration)} images at {manualSceneDuration}s each)
-                    </p>
+                    )}
                   </div>
+                )}
+                
+                {/* Separator if both sections shown */}
+                {lyricsAnalysis && uploadedImages.length > 0 && (
+                  <div className="border-t border-border/30 pt-4" />
+                )}
+                
+                {/* Manual Duration Toggle - show when have images */}
+                {uploadedImages.length > 0 && (
+                  <>
+                    <div className="flex items-center gap-3">
+                      <Switch
+                        id="manual-duration"
+                        checked={useManualDuration}
+                        onCheckedChange={setUseManualDuration}
+                      />
+                      <Label htmlFor="manual-duration" className="text-sm font-medium cursor-pointer">
+                        Manual Duration Mode
+                      </Label>
+                    </div>
+                    
+                    {useManualDuration && (
+                      <div className="space-y-4">
+                        {!lyricsAnalysis && (
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <Label className="text-sm text-muted-foreground">Scene Duration (per clip)</Label>
+                              <span className="text-sm font-mono text-primary">{manualSceneDuration}s</span>
+                            </div>
+                            <Slider
+                              value={[manualSceneDuration]}
+                              onValueChange={(v) => setManualSceneDuration(v[0])}
+                              min={3}
+                              max={10}
+                              step={1}
+                              className="w-full"
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              Video API limit: 3-10 seconds per clip. Frame continuity chains clips together.
+                            </p>
+                          </div>
+                        )}
+                        
+                        <div className="p-3 rounded-lg bg-primary/10 border border-primary/20 space-y-2">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">Total Video Duration:</span>
+                            <span className="font-mono font-semibold text-primary text-lg">
+                              {Math.floor((uploadedImages.length * manualSceneDuration) / 60)}:{String(Math.round((uploadedImages.length * manualSceneDuration) % 60)).padStart(2, '0')}
+                            </span>
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {uploadedImages.length} images × {manualSceneDuration}s = {uploadedImages.length * manualSceneDuration}s
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+                
+                {/* Help text when no images yet */}
+                {uploadedImages.length === 0 && !lyricsAnalysis && (
+                  <p className="text-xs text-muted-foreground">
+                    Upload lyrics and analyze them to auto-generate scene images, or upload your own images.
+                  </p>
                 )}
               </div>
             )}
