@@ -111,13 +111,33 @@ export const DEFAULT_VIDEO_SETTINGS: VideoSettings = {
 // Built-in presets
 export const VIDEO_PRESETS: VideoPreset[] = [
   {
+    id: "5s-fast",
+    name: "5s Fast (8GB)",
+    description: "Optimized 5-second video for 8GB VRAM. ~15-20 min generation.",
+    settings: {
+      sampler: "euler",
+      scheduler: "normal",
+      steps: 8,
+      cfgScale: 6,
+      denoise: 0.5,
+      frames: 30,
+      frameRate: 6,
+      motionModel: "v3_sd15_mm.ckpt",
+      width: 512,
+      height: 512,
+      format: "video/h264-mp4",
+      quality: 21,
+      pingpong: false,
+    },
+  },
+  {
     id: "fast",
     name: "Fast Preview",
     description: "Quick generation for previewing motion. Lower quality but fast.",
     settings: {
       sampler: "euler",
       scheduler: "normal",
-      steps: 12,
+      steps: 8,
       cfgScale: 6,
       denoise: 0.5,
       frames: 12,
