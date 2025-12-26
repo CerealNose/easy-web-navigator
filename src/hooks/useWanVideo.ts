@@ -78,7 +78,8 @@ const createWanI2VWorkflow = (
     "6": {
       inputs: {
         clip_vision: ["3", 0],
-        image: ["5", 0]
+        image: ["5", 0],
+        crop: "center"
       },
       class_type: "CLIPVisionEncode",
       _meta: { title: "CLIP Vision Encode" }
@@ -111,7 +112,8 @@ const createWanI2VWorkflow = (
         clip_vision_output: ["6", 0],
         start_image: ["5", 0],
         positive: ["7", 0],
-        negative: ["8", 0]
+        negative: ["8", 0],
+        vae: ["2", 0]
       },
       class_type: "WanImageToVideo",
       _meta: { title: "Wan Image To Video" }
