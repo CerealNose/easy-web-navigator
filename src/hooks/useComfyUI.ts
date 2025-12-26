@@ -823,8 +823,11 @@ export function useComfyUI() {
       stitchWorkflow[combineNodeId] = {
         "class_type": "VHS_MergeImages",
         "inputs": {
-          "images_a": [lastCombineNode, 0],
-          "images_b": [loadNodeId, 0]
+          "images_A": [lastCombineNode, 0],
+          "images_B": [loadNodeId, 0],
+          "merge_strategy": "append",
+          "scale_method": "nearest-exact",
+          "crop": "disabled"
         }
       };
       
