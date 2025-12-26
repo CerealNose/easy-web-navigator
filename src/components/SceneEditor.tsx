@@ -13,9 +13,12 @@ import {
   Edit3,
   Upload,
   Clock,
-  Trash2
+  Trash2,
+  Eye,
+  Loader2
 } from "lucide-react";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 export interface EditableScene {
   section: string;
@@ -41,7 +44,67 @@ export function SceneEditor({
   isGeneratingPrompt 
 }: SceneEditorProps) {
   const [expandedScene, setExpandedScene] = useState<number | null>(null);
+  const [analyzingScene, setAnalyzingScene] = useState<number | null>(null);
   const fileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  // Convert file to base64 for API
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // Analyze image and generate prompt from it
+  const handleAnalyzeImage = async (index: number) => {
+    const scene = scenes[index];
+    if (!scene.uploadedImage) {
+      toast.error("No image to analyze. Please upload an image first.");
+      return;
+    }
+
+    setAnalyzingScene(index);
+    try {
+      const base64 = await fileToBase64(scene.uploadedImage.file);
+      
+      // Call analyze-image-style to get visual description
+      const styleRes = await supabase.functions.invoke("analyze-image-style", {
+        body: { imageBase64: base64 }
+      });
+      
+      if (styleRes.error) throw styleRes.error;
+      
+      const styleDescription = styleRes.data?.styleDescription || "";
+      
+      // Now generate a scene prompt based on the image
+      const promptRes = await supabase.functions.invoke("generate-video-prompt", {
+        body: {
+          imageBase64: base64,
+          lyricContext: scene.lyrics,
+          motionHint: "slow camera movement, smooth pan, atmospheric"
+        }
+      });
+      
+      if (promptRes.error) throw promptRes.error;
+      
+      const videoPrompt = promptRes.data?.videoPrompt || "";
+      
+      // Combine style and video prompt
+      const combinedPrompt = videoPrompt 
+        ? `${styleDescription}, ${videoPrompt}`
+        : styleDescription;
+      
+      updateScene(index, { prompt: combinedPrompt });
+      toast.success(`Scene ${index + 1}: Prompt generated from image analysis`);
+    } catch (error) {
+      console.error("Image analysis failed:", error);
+      toast.error("Failed to analyze image");
+    } finally {
+      setAnalyzingScene(null);
+    }
+  };
 
   const updateScene = (index: number, updates: Partial<EditableScene>) => {
     const newScenes = scenes.map((scene, i) => 
@@ -178,19 +241,40 @@ export function SceneEditor({
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label className="text-xs text-muted-foreground">Visual Prompt</Label>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleRegeneratePrompt(index);
-                      }}
-                      disabled={isGeneratingPrompt === index}
-                      className="h-7 text-xs"
-                    >
-                      <Sparkles className="w-3 h-3 mr-1" />
-                      {isGeneratingPrompt === index ? 'Generating...' : 'Regenerate'}
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      {scene.uploadedImage && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleAnalyzeImage(index);
+                          }}
+                          disabled={analyzingScene === index}
+                          className="h-7 text-xs text-secondary hover:text-secondary"
+                        >
+                          {analyzingScene === index ? (
+                            <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                          ) : (
+                            <Eye className="w-3 h-3 mr-1" />
+                          )}
+                          {analyzingScene === index ? 'Analyzing...' : 'Analyze Image'}
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRegeneratePrompt(index);
+                        }}
+                        disabled={isGeneratingPrompt === index}
+                        className="h-7 text-xs"
+                      >
+                        <Sparkles className="w-3 h-3 mr-1" />
+                        {isGeneratingPrompt === index ? 'Generating...' : 'Regenerate'}
+                      </Button>
+                    </div>
                   </div>
                   <Textarea
                     value={scene.prompt}
