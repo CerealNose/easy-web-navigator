@@ -169,10 +169,10 @@ const createWanI2VWorkflow = (
 const callComfyUIProxy = async (
   baseUrl: string,
   action: string,
-  params: Record<string, unknown> = {}
+  payload: Record<string, unknown> = {}
 ) => {
   const { data, error } = await supabase.functions.invoke("comfyui-proxy", {
-    body: { comfyUrl: baseUrl, action, ...params },
+    body: { comfyUrl: baseUrl, action, payload },
   });
   if (error) throw error;
   return data;
@@ -223,7 +223,7 @@ export function useWanVideo() {
 
         // Check history for completion
         const historyData = await callComfyUIProxy(comfyUIConfig.baseUrl, "get_history", {
-          promptId,
+          prompt_id: promptId,
         });
 
         if (historyData && historyData[promptId]) {
