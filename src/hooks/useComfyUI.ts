@@ -18,8 +18,15 @@ interface HistoryOutput {
   videos?: Array<{ filename: string; subfolder: string; type: string; format?: string }>;
 }
 
+interface HistoryStatus {
+  status_str: string;
+  completed: boolean;
+  messages?: Array<[string, Record<string, unknown>]>;
+}
+
 interface HistoryItem {
   outputs: Record<string, HistoryOutput>;
+  status?: HistoryStatus;
 }
 
 // Default workflow using standard CheckpointLoaderSimple (works with any checkpoint: SD1.5, SDXL, FLUX, etc.)
@@ -454,6 +461,25 @@ export function useComfyUI() {
         const historyRetryMax = 30;
         for (let r = 0; r < historyRetryMax; r++) {
           const history = await getHistory(promptId);
+          
+          // Check if ComfyUI reported an error in the status
+          if (history?.status?.status_str === "error") {
+            const errorMsg = history.status.messages?.find(
+              (m: any) => m[0] === "execution_error"
+            );
+            if (errorMsg && errorMsg[1]?.exception_message) {
+              const msg = errorMsg[1].exception_message as string;
+              // Provide user-friendly message for common errors
+              if (msg.includes("OutOfMemoryError") || msg.includes("ran out of memory")) {
+                throw new Error(
+                  "GPU out of memory! Try reducing the number of frames (e.g., 16 instead of 32) or use a smaller resolution."
+                );
+              }
+              throw new Error(`ComfyUI error: ${msg}`);
+            }
+            throw new Error("ComfyUI reported an error during generation. Check the ComfyUI console for details.");
+          }
+          
           if (history?.outputs) {
             const videoUrl = await extractVideoFromHistory(history);
             if (videoUrl) {
@@ -479,6 +505,24 @@ export function useComfyUI() {
         });
 
         const history = await getHistory(promptId);
+        
+        // Final check for error status
+        if (history?.status?.status_str === "error") {
+          const errorMsg = history.status.messages?.find(
+            (m: any) => m[0] === "execution_error"
+          );
+          if (errorMsg && errorMsg[1]?.exception_message) {
+            const msg = errorMsg[1].exception_message as string;
+            if (msg.includes("OutOfMemoryError") || msg.includes("ran out of memory")) {
+              throw new Error(
+                "GPU out of memory! Try reducing the number of frames (e.g., 16 instead of 32) or use a smaller resolution."
+              );
+            }
+            throw new Error(`ComfyUI error: ${msg}`);
+          }
+          throw new Error("ComfyUI reported an error during generation. Check the ComfyUI console for details.");
+        }
+        
         console.error("Video generation: history present but no video output.", history);
         throw new Error(
           "Video generation completed but no video found yet. If you're using VHS_VideoCombine, ensure it is saving output (save_output=true) and try again."
