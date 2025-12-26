@@ -468,9 +468,9 @@ export function VideoSettingsPanel() {
                 <Slider
                   value={[videoSettings.steps]}
                   onValueChange={([v]) => updateSetting("steps", v)}
-                  min={10}
+                  min={4}
                   max={50}
-                  step={5}
+                  step={1}
                 />
               </div>
 
