@@ -166,7 +166,7 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
   const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([]);
   
   // Settings context and ComfyUI hook
-  const { inferenceMode, isComfyUIConnected } = useSettings();
+  const { inferenceMode, isComfyUIConnected, videoSettings } = useSettings();
   const {
     generateImage: generateLocalImage,
     generateVideo: generateLocalVideo,
@@ -1581,9 +1581,22 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
             try {
               toast.info(`Scene ${i + 1}: Generating video locally (ComfyUI AnimateDiff)...`, { duration: 8000 });
 
+              // Local duration is controlled by frames / frameRate (NOT a separate "seconds" param)
               const targetSeconds = Math.min(sceneList[i].duration, 10);
-              const localFps = Math.min(fpsValue, 24);
-              const localFrames = Math.max(8, Math.min(32, Math.round(targetSeconds * localFps)));
+              const localFps = Math.max(1, Math.min(videoSettings.frameRate ?? 6, 60));
+
+              // Safety cap to avoid accidental OOM on consumer GPUs
+              const maxLocalFrames = 120;
+              const requestedFrames = Math.max(8, Math.round(targetSeconds * localFps));
+              const localFrames = Math.min(maxLocalFrames, requestedFrames);
+
+              if (localFrames !== requestedFrames) {
+                const cappedSeconds = (localFrames / localFps).toFixed(1);
+                toast.warning(
+                  `Scene ${i + 1}: Capped to ${localFrames} frames (~${cappedSeconds}s) to avoid VRAM spikes.`,
+                  { duration: 8000 }
+                );
+              }
 
               const localVideo = await generateLocalVideo(imageUrl, videoPrompt, {
                 seed: typeof videoSeed === "number" ? videoSeed : undefined,
