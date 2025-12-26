@@ -35,7 +35,8 @@ const createWanI2VWorkflow = (
     // Load the diffusion model
     "1": {
       inputs: {
-        unet_name: diffusionModel
+        unet_name: diffusionModel,
+        weight_dtype: "fp8_e4m3fn"
       },
       class_type: "UNETLoader",
       _meta: { title: "Load Diffusion Model" }
@@ -100,7 +101,7 @@ const createWanI2VWorkflow = (
       class_type: "CLIPTextEncode",
       _meta: { title: "CLIP Text Encode (Negative)" }
     },
-    // WanImageToVideo - creates latent and applies image conditioning
+    // WanImageToVideo - outputs: positive_cond(0), negative_cond(1), latent(2)
     "9": {
       inputs: {
         width: width,
@@ -108,12 +109,14 @@ const createWanI2VWorkflow = (
         length: frames,
         batch_size: 1,
         clip_vision_output: ["6", 0],
-        start_image: ["5", 0]
+        start_image: ["5", 0],
+        positive: ["7", 0],
+        negative: ["8", 0]
       },
       class_type: "WanImageToVideo",
       _meta: { title: "Wan Image To Video" }
     },
-    // KSampler
+    // KSampler - WanImageToVideo outputs: positive(0), negative(1), latent(2)
     "10": {
       inputs: {
         seed: seed,
@@ -123,9 +126,9 @@ const createWanI2VWorkflow = (
         scheduler: "normal",
         denoise: 1.0,
         model: ["1", 0],
-        positive: ["7", 0],
-        negative: ["8", 0],
-        latent_image: ["9", 0]
+        positive: ["9", 0],
+        negative: ["9", 1],
+        latent_image: ["9", 2]
       },
       class_type: "KSampler",
       _meta: { title: "KSampler" }
