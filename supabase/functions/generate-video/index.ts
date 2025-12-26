@@ -139,10 +139,11 @@ serve(async (req) => {
       );
     }
 
+    const clampedDuration = Math.round(Math.min(Math.max(duration, 2), 12));
     console.log("Starting video generation with seedance-1-lite");
     console.log("Prompt:", prompt);
     console.log("Image URL (first 100 chars):", imageUrl.substring(0, 100));
-    console.log("Duration:", duration);
+    console.log("Duration requested:", duration, "-> clamped to:", clampedDuration);
     console.log("Resolution:", resolution);
     console.log("Aspect Ratio:", aspectRatio);
     console.log("FPS:", fps);
@@ -153,11 +154,13 @@ serve(async (req) => {
     const input: Record<string, unknown> = {
       image: imageUrl,
       prompt: prompt || "cinematic motion, smooth camera movement",
-      duration: Math.round(Math.min(Math.max(duration, 2), 12)), // clamp between 2-12 seconds and ensure integer
+      duration: clampedDuration, // Integer 2-12 seconds
       resolution: resolution, // "480p", "720p", or "1080p"
       aspect_ratio: aspectRatio, // "16:9", "9:16", or "1:1"
       fps: 24, // seedance-1-lite only supports 24 fps
     };
+    
+    console.log("Final input to Replicate:", JSON.stringify(input, null, 2));
 
     // Note: last_frame_image is for specifying END frame, not for scene continuity
     // For scene continuity, we use the extracted frame as the starting "image" parameter
@@ -171,7 +174,7 @@ serve(async (req) => {
       input.seed = seed;
     }
 
-    console.log("Replicate input:", JSON.stringify(input, null, 2));
+    
 
     // Create prediction with retry logic for rate limits
     const prediction = await retryWithBackoff(async () => {
