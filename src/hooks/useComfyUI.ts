@@ -7,8 +7,14 @@ interface ComfyUIWorkflowResult {
   seed: number;
 }
 
+interface ComfyUIVideoResult {
+  videoUrl: string;
+  seed: number;
+}
+
 interface HistoryOutput {
   images?: Array<{ filename: string; subfolder: string; type: string }>;
+  gifs?: Array<{ filename: string; subfolder: string; type: string }>;
 }
 
 interface HistoryItem {
@@ -96,6 +102,118 @@ const createWorkflowWithCheckpoint = (
   return workflow;
 };
 
+// AnimateDiff Image-to-Video workflow for local video generation
+// This requires AnimateDiff custom nodes installed in ComfyUI
+const createAnimateDiffI2VWorkflow = (
+  imageBase64: string,
+  motionPrompt: string,
+  seed: number,
+  frames: number = 16
+) => ({
+  "1": {
+    "inputs": {
+      "image": imageBase64,
+      "upload": "image"
+    },
+    "class_type": "LoadImage",
+    "_meta": { "title": "Load Image" }
+  },
+  "2": {
+    "inputs": {
+      "ckpt_name": "sd15_animatediff.safetensors"
+    },
+    "class_type": "CheckpointLoaderSimple",
+    "_meta": { "title": "Load Checkpoint" }
+  },
+  "3": {
+    "inputs": {
+      "model_name": "v3_sd15_mm.ckpt"
+    },
+    "class_type": "ADE_LoadAnimateDiffModel",
+    "_meta": { "title": "Load AnimateDiff Model" }
+  },
+  "4": {
+    "inputs": {
+      "motion_model": ["3", 0],
+      "model": ["2", 0]
+    },
+    "class_type": "ADE_ApplyAnimateDiffModel",
+    "_meta": { "title": "Apply AnimateDiff Model" }
+  },
+  "5": {
+    "inputs": {
+      "text": motionPrompt,
+      "clip": ["2", 1]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": { "title": "CLIP Text Encode (Positive)" }
+  },
+  "6": {
+    "inputs": {
+      "text": "static, still, frozen, bad quality, blurry",
+      "clip": ["2", 1]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": { "title": "CLIP Text Encode (Negative)" }
+  },
+  "7": {
+    "inputs": {
+      "pixels": ["1", 0],
+      "vae": ["2", 2]
+    },
+    "class_type": "VAEEncode",
+    "_meta": { "title": "VAE Encode" }
+  },
+  "8": {
+    "inputs": {
+      "samples": ["7", 0],
+      "batch_size": frames
+    },
+    "class_type": "RepeatLatentBatch",
+    "_meta": { "title": "Repeat Latent Batch" }
+  },
+  "9": {
+    "inputs": {
+      "seed": seed,
+      "steps": 20,
+      "cfg": 7.5,
+      "sampler_name": "euler",
+      "scheduler": "normal",
+      "denoise": 0.6,
+      "model": ["4", 0],
+      "positive": ["5", 0],
+      "negative": ["6", 0],
+      "latent_image": ["8", 0]
+    },
+    "class_type": "KSampler",
+    "_meta": { "title": "KSampler" }
+  },
+  "10": {
+    "inputs": {
+      "samples": ["9", 0],
+      "vae": ["2", 2]
+    },
+    "class_type": "VAEDecode",
+    "_meta": { "title": "VAE Decode" }
+  },
+  "11": {
+    "inputs": {
+      "frame_rate": 8,
+      "loop_count": 0,
+      "filename_prefix": "AnimateDiff",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 19,
+      "save_metadata": true,
+      "pingpong": false,
+      "save_output": true,
+      "images": ["10", 0]
+    },
+    "class_type": "VHS_VideoCombine",
+    "_meta": { "title": "Video Combine" }
+  }
+});
+
 // Helper to call the proxy edge function
 async function callComfyUIProxy(action: string, comfyUrl: string, payload?: object) {
   const { data, error } = await supabase.functions.invoke('comfyui-proxy', {
@@ -116,7 +234,9 @@ async function callComfyUIProxy(action: string, comfyUrl: string, payload?: obje
 export function useComfyUI() {
   const { comfyUIConfig, isComfyUIConnected, setIsComfyUIConnected } = useSettings();
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [videoProgress, setVideoProgress] = useState(0);
 
   const getComfyUrl = useCallback(() => {
     // Normalize: remove trailing slash
@@ -214,6 +334,59 @@ export function useComfyUI() {
     throw new Error("Generation timed out");
   }, [checkQueue, getHistory, getImageData]);
 
+  // Poll for video completion
+  const pollForVideoCompletion = useCallback(async (
+    promptId: string,
+    maxAttempts: number = 300, // Video takes longer
+    interval: number = 2000
+  ): Promise<ComfyUIVideoResult> => {
+    let attempts = 0;
+    
+    while (attempts < maxAttempts) {
+      const inQueue = await checkQueue(promptId);
+      
+      if (!inQueue) {
+        const history = await getHistory(promptId);
+        
+        if (history) {
+          for (const nodeId of Object.keys(history.outputs)) {
+            const output = history.outputs[nodeId];
+            // Check for gifs/videos (VHS_VideoCombine outputs)
+            if (output.gifs && output.gifs.length > 0) {
+              const video = output.gifs[0];
+              const videoData = await getImageData(video.filename, video.subfolder, video.type);
+              
+              return {
+                videoUrl: videoData,
+                seed: 0,
+              };
+            }
+            // Also check images array for mp4 files
+            if (output.images && output.images.length > 0) {
+              const file = output.images.find(f => f.filename.endsWith('.mp4') || f.filename.endsWith('.gif'));
+              if (file) {
+                const videoData = await getImageData(file.filename, file.subfolder, file.type);
+                return {
+                  videoUrl: videoData,
+                  seed: 0,
+                };
+              }
+            }
+          }
+        }
+        
+        throw new Error("Video generation completed but no video found. Make sure AnimateDiff and VHS nodes are installed.");
+      }
+      
+      setVideoProgress(Math.min((attempts / maxAttempts) * 100, 95));
+      
+      await new Promise(resolve => setTimeout(resolve, interval));
+      attempts++;
+    }
+    
+    throw new Error("Video generation timed out");
+  }, [checkQueue, getHistory, getImageData]);
+
   // Main function to generate an image
   const generateImage = useCallback(async (
     prompt: string,
@@ -277,6 +450,46 @@ export function useComfyUI() {
     }
   }, [checkConnection, getComfyUrl, comfyUIConfig.selectedCheckpoint, queuePrompt, pollForCompletion]);
 
+  // Generate video from image using AnimateDiff
+  const generateVideo = useCallback(async (
+    imageUrl: string,
+    motionPrompt: string,
+    options: {
+      seed?: number;
+      frames?: number;
+    } = {}
+  ): Promise<ComfyUIVideoResult> => {
+    const {
+      seed = Math.floor(Math.random() * 2147483647),
+      frames = 16,
+    } = options;
+
+    // Check connection first
+    const connected = await checkConnection();
+    if (!connected) {
+      throw new Error("ComfyUI is not connected. Please check your tunnel URL in settings.");
+    }
+
+    setIsGeneratingVideo(true);
+    setVideoProgress(0);
+
+    try {
+      // Create AnimateDiff workflow
+      const workflow = createAnimateDiffI2VWorkflow(imageUrl, motionPrompt, seed, frames);
+
+      setVideoProgress(5);
+      const promptId = await queuePrompt(workflow);
+
+      setVideoProgress(10);
+      const result = await pollForVideoCompletion(promptId);
+
+      setVideoProgress(100);
+      return { ...result, seed };
+    } finally {
+      setIsGeneratingVideo(false);
+    }
+  }, [checkConnection, queuePrompt, pollForVideoCompletion]);
+
   // Check system status
   const getSystemStats = useCallback(async () => {
     return callComfyUIProxy('system_stats', getComfyUrl());
@@ -294,10 +507,13 @@ export function useComfyUI() {
 
   return {
     generateImage,
+    generateVideo,
     getSystemStats,
     getModels,
     isGenerating,
+    isGeneratingVideo,
     progress,
+    videoProgress,
     isConnected: isComfyUIConnected,
     checkConnection,
   };
