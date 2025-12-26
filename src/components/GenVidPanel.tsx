@@ -838,12 +838,20 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
         if (aspectRatio === "9:16") { width = 720; height = 1280; }
         else if (aspectRatio === "1:1") { width = 1024; height = 1024; }
         
-        // Generate image - use local ComfyUI if available, otherwise cloud
+        // Generate image - use local ComfyUI if in local mode, otherwise cloud
         const seed = baseSeedForRun ? baseSeedForRun + i : undefined;
         
         let imageUrl: string | null = null;
         
-        if (useLocalGeneration && isComfyUIConnected) {
+        // Check if user wants local generation
+        if (useLocalGeneration) {
+          if (!isComfyUIConnected) {
+            toast.error("ComfyUI is not connected. Please check your tunnel URL in Settings.");
+            setIsGeneratingQuickTarget(false);
+            setQuickTargetProgress(null);
+            return;
+          }
+          
           // Use local ComfyUI
           try {
             const localResult = await generateLocalImage(scenePrompt, { 
@@ -853,14 +861,17 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
             });
             if (localResult?.imageUrl) {
               imageUrl = localResult.imageUrl;
+            } else {
+              toast.error(`Local generation returned no image for scene ${i + 1}`);
+              continue;
             }
           } catch (localErr) {
-            console.warn(`Local generation failed for image ${i + 1}, trying cloud:`, localErr);
+            console.error(`Local generation failed for image ${i + 1}:`, localErr);
+            toast.error(`Local generation failed: ${localErr instanceof Error ? localErr.message : 'Unknown error'}`);
+            continue;
           }
-        }
-        
-        // Fallback to cloud if local didn't work or isn't available
-        if (!imageUrl) {
+        } else {
+          // Use cloud API
           const { data: imageData, error: imageError } = await supabase.functions.invoke('generate-image', {
             body: {
               prompt: scenePrompt,
