@@ -838,29 +838,52 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
         if (aspectRatio === "9:16") { width = 720; height = 1280; }
         else if (aspectRatio === "1:1") { width = 1024; height = 1024; }
         
-        // Generate image
+        // Generate image - use local ComfyUI if available, otherwise cloud
         const seed = baseSeedForRun ? baseSeedForRun + i : undefined;
         
-        const { data: imageData, error: imageError } = await supabase.functions.invoke('generate-image', {
-          body: {
-            prompt: scenePrompt,
-            seed,
-            width,
-            height,
-            quality: imageQuality[0]
-          }
-        });
+        let imageUrl: string | null = null;
         
-        if (imageError) {
-          console.error(`Failed to generate image ${i + 1}:`, imageError);
-          toast.error(`Failed to generate image ${i + 1}`);
-          continue;
+        if (useLocalGeneration && isComfyUIConnected) {
+          // Use local ComfyUI
+          try {
+            const localResult = await generateLocalImage(scenePrompt, { 
+              seed: seed ?? undefined,
+              width,
+              height
+            });
+            if (localResult?.imageUrl) {
+              imageUrl = localResult.imageUrl;
+            }
+          } catch (localErr) {
+            console.warn(`Local generation failed for image ${i + 1}, trying cloud:`, localErr);
+          }
         }
         
-        if (imageData?.imageUrl) {
+        // Fallback to cloud if local didn't work or isn't available
+        if (!imageUrl) {
+          const { data: imageData, error: imageError } = await supabase.functions.invoke('generate-image', {
+            body: {
+              prompt: scenePrompt,
+              seed,
+              width,
+              height,
+              quality: imageQuality[0]
+            }
+          });
+          
+          if (imageError) {
+            console.error(`Failed to generate image ${i + 1}:`, imageError);
+            toast.error(`Failed to generate image ${i + 1}: ${imageError.message || 'Unknown error'}`);
+            continue;
+          }
+          
+          imageUrl = imageData?.imageUrl;
+        }
+        
+        if (imageUrl) {
           // Fetch the image and convert to blob for local preview
           try {
-            const imageResponse = await fetch(imageData.imageUrl);
+            const imageResponse = await fetch(imageUrl);
             const blob = await imageResponse.blob();
             const file = new File([blob], `scene_${i + 1}.webp`, { type: 'image/webp' });
             const preview = URL.createObjectURL(blob);
