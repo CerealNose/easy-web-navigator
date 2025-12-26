@@ -16,6 +16,7 @@ import { SceneEditor, EditableScene } from "./SceneEditor";
 import JSZip from "jszip";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useComfyUI } from "@/hooks/useComfyUI";
+import { useVideoStitcher } from "@/hooks/useVideoStitcher";
 import { VideoSettingsCompact } from "./VideoSettingsCompact";
 
 interface Section {
@@ -175,6 +176,9 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
     progress: localProgress,
     videoProgressInfo,
   } = useComfyUI();
+  
+  // Video stitcher hook for combining multi-clip videos
+  const { stitchVideos, isStitching, progress: stitchProgress } = useVideoStitcher();
   
   // Settings
   const [stylePreset, setStylePreset] = useState<keyof typeof STYLE_PRESETS>("cinematic");
@@ -1604,22 +1608,38 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
                   },
                 });
                 
-                // For now, use the last generated clip as the scene video
-                // (In the future, these could be stitched together with ffmpeg.wasm)
-                const videoUrl = longVideoResult.videoUrls[longVideoResult.videoUrls.length - 1];
+                // Auto-stitch clips into a single video
+                toast.info(`Scene ${i + 1}: Stitching ${longVideoResult.videoUrls.length} clips...`, { duration: 5000 });
                 
-                // Store all clip URLs in the scene for potential stitching later
+                let finalVideoUrl: string;
+                try {
+                  const stitchedResult = await stitchVideos(longVideoResult.videoUrls, {
+                    outputFilename: `scene_${i + 1}_stitched.mp4`,
+                    onProgress: (p) => {
+                      if (p.stage === 'downloading') {
+                        toast.info(`Scene ${i + 1}: ${p.message}`, { duration: 2000 });
+                      }
+                    },
+                  });
+                  finalVideoUrl = stitchedResult.url;
+                  toast.success(`Scene ${i + 1}: Stitched into single ${longVideoResult.totalDuration.toFixed(1)}s video!`, { duration: 5000 });
+                } catch (stitchError) {
+                  console.warn(`Scene ${i + 1}: Stitching failed, using last clip instead:`, stitchError);
+                  // Fallback to last clip if stitching fails
+                  finalVideoUrl = longVideoResult.videoUrls[longVideoResult.videoUrls.length - 1];
+                  toast.warning(`Scene ${i + 1}: Couldn't stitch clips, using last clip. ${longVideoResult.videoUrls.length} clips available for manual download.`, { duration: 8000 });
+                }
+                
+                // Store stitched video URL (or fallback) and keep clip URLs for backup
                 setScenes(prev => prev.map((s, idx) =>
                   idx === i ? { 
                     ...s, 
-                    videoUrl, 
+                    videoUrl: finalVideoUrl, 
                     status: 'complete',
                     // @ts-ignore - Extended property for multi-clip storage
                     clipUrls: longVideoResult.videoUrls,
                   } : s
                 ));
-                
-                toast.success(`Scene ${i + 1}: Generated ${longVideoResult.videoUrls.length} clips (${longVideoResult.totalDuration.toFixed(1)}s total)`, { duration: 5000 });
               } else {
                 // Single clip generation
                 toast.info(`Scene ${i + 1}: Generating video locally (ComfyUI AnimateDiff)...`, { duration: 8000 });
