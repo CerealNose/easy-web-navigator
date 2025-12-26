@@ -41,7 +41,13 @@ export function MoodImagePanel({ prompt, themes, onPromptChange }: MoodImagePane
 
   // Settings and ComfyUI integration
   const { inferenceMode, isComfyUIConnected } = useSettings();
-  const { generateImage: generateLocalImage, progress: localProgress } = useComfyUI();
+  const { 
+    generateImage: generateLocalImage, 
+    generateVideo: generateLocalVideo,
+    progress: localProgress,
+    videoProgress: localVideoProgress,
+    isGeneratingVideo: isLocalVideoGenerating,
+  } = useComfyUI();
 
   const copyPrompt = async () => {
     await navigator.clipboard.writeText(prompt);
@@ -124,26 +130,39 @@ export function MoodImagePanel({ prompt, themes, onPromptChange }: MoodImagePane
       return;
     }
 
+    const useLocalGeneration = inferenceMode === "local" || 
+      (inferenceMode === "hybrid" && isComfyUIConnected);
+
     setIsGeneratingVideo(true);
     try {
-      // Start async generation
-      const { data, error } = await supabase.functions.invoke("generate-video", {
-        body: { 
-          imageUrl: generatedImage,
-          prompt: videoPrompt,
-          duration: 3
-        }
-      });
+      if (useLocalGeneration) {
+        // Use local ComfyUI with AnimateDiff
+        toast.info("Generating video with local ComfyUI (AnimateDiff)...");
+        const result = await generateLocalVideo(generatedImage, videoPrompt, {
+          frames: 16,
+        });
+        setGeneratedVideo(result.videoUrl);
+        toast.success(`Video generated locally! (seed: ${result.seed})`);
+      } else {
+        // Use cloud (Replicate)
+        const { data, error } = await supabase.functions.invoke("generate-video", {
+          body: { 
+            imageUrl: generatedImage,
+            prompt: videoPrompt,
+            duration: 3
+          }
+        });
 
-      if (error) throw new Error(error.message);
-      if (data.error) throw new Error(data.error);
+        if (error) throw new Error(error.message);
+        if (data.error) throw new Error(data.error);
 
-      toast.info("Video generation started, this may take a few minutes...");
-      
-      // Poll for completion
-      const videoUrl = await pollForVideoCompletion(data.taskId);
-      setGeneratedVideo(videoUrl);
-      toast.success("Video generated successfully!");
+        toast.info("Video generation started, this may take a few minutes...");
+        
+        // Poll for completion
+        const videoUrl = await pollForVideoCompletion(data.taskId);
+        setGeneratedVideo(videoUrl);
+        toast.success("Video generated via cloud!");
+      }
     } catch (err) {
       console.error("Video generation error:", err);
       toast.error(err instanceof Error ? err.message : "Failed to generate video");
@@ -335,16 +354,23 @@ export function MoodImagePanel({ prompt, themes, onPromptChange }: MoodImagePane
               variant="neon" 
               size="sm" 
               onClick={generateVideo} 
-              disabled={isGeneratingVideo}
+              disabled={isGeneratingVideo || isLocalVideoGenerating}
+              title={inferenceMode === "local" ? "Using local ComfyUI AnimateDiff" : "Using cloud"}
             >
-              {isGeneratingVideo ? (
+              {isGeneratingVideo || isLocalVideoGenerating ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Generating Video...
+                  {inferenceMode === "local" || (inferenceMode === "hybrid" && isComfyUIConnected)
+                    ? `Local ${localVideoProgress > 0 ? `(${Math.round(localVideoProgress)}%)` : "..."}`
+                    : "Cloud..."}
                 </>
               ) : (
                 <>
-                  <Video className="w-4 h-4" />
+                  {inferenceMode === "local" || (inferenceMode === "hybrid" && isComfyUIConnected) ? (
+                    <Cpu className="w-4 h-4" />
+                  ) : (
+                    <Cloud className="w-4 h-4" />
+                  )}
                   Generate Video
                 </>
               )}
