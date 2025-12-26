@@ -172,7 +172,28 @@ serve(async (req) => {
     }
 
     if (!response.ok) {
+      const contentType = response.headers.get('content-type') || '';
       const errorText = await response.text();
+
+      // ngrok returns an HTML error page when the tunnel is up but the upstream service is down
+      if (contentType.includes('text/html') || errorText.startsWith('<!DOCTYPE html')) {
+        const isNgrokUpstreamDown =
+          errorText.includes('ERR_NGROK_8012') ||
+          errorText.includes('failed to establish a connection to the upstream web service');
+
+        if (isNgrokUpstreamDown) {
+          console.error(`ComfyUI/ngrok upstream error (${response.status}): ${comfyUrl}`);
+          return new Response(
+            JSON.stringify({
+              error: 'ComfyUI is unreachable (ngrok upstream refused connection)',
+              details:
+                'ngrok tunnel is running but ComfyUI is not reachable at localhost:8188. Start ComfyUI (API on :8188) and retry.',
+            }),
+            { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+      }
+
       console.error(`ComfyUI error: ${response.status} - ${errorText}`);
       return new Response(
         JSON.stringify({ error: `ComfyUI error: ${response.status}`, details: errorText }),
