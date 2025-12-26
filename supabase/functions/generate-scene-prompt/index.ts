@@ -57,11 +57,15 @@ CRITICAL STYLE RULE: All human figures must be shown as SILHOUETTES - backlit, s
 - Use dramatic backlighting, rim lighting, or shadows to create silhouette effects
 - Characters should be dark outlines against dramatic lighting
 - If a protagonist is mentioned, describe only: silhouette, height/build, clothing outline`; 
-    } else if (characterDescription) {
+    } else {
+      // Explicitly tell AI to NOT use silhouette styling
       characterStyleInstructions = `
-CRITICAL - CHARACTER CONSISTENCY:
-The protagonist MUST be described EXACTLY the same way in EVERY scene: "${characterDescription}"
-Do NOT change any physical features. Use this EXACT description when the protagonist appears.`;
+IMPORTANT STYLE RULE: Do NOT use silhouette styling. Show characters clearly and fully visible.
+- Describe characters with clear visibility, good lighting on their faces and bodies
+- Include facial expressions, emotions, and details when describing people
+- Avoid backlit, shadowed, or silhouetted figures
+- Use front lighting, three-point lighting, or ambient lighting that reveals character details
+${characterDescription ? `\nCRITICAL - CHARACTER CONSISTENCY:\nThe protagonist MUST be described EXACTLY the same way in EVERY scene: "${characterDescription}"\nDo NOT change any physical features. Use this EXACT description when the protagonist appears.` : ""}`;
     }
 
     const systemPrompt = `You are a cinematic visual director creating image prompts for a cohesive music video with a clear narrative.
