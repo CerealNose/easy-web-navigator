@@ -138,10 +138,20 @@ const createAnimateDiffI2VWorkflow = (
     "4": {
       "inputs": {
         "motion_model": ["3", 0],
-        "model": ["2", 0]
+        "start_percent": 0,
+        "end_percent": 1
       },
       "class_type": "ADE_ApplyAnimateDiffModel",
       "_meta": { "title": "Apply AnimateDiff Model" }
+    },
+    "12": {
+      "inputs": {
+        "model": ["2", 0],
+        "beta_schedule": "autoselect",
+        "m_models": ["4", 0]
+      },
+      "class_type": "ADE_UseEvolvedSampling",
+      "_meta": { "title": "Use Evolved Sampling" }
     },
     "5": {
       "inputs": {
@@ -183,7 +193,7 @@ const createAnimateDiffI2VWorkflow = (
         "sampler_name": "euler",
         "scheduler": "normal",
         "denoise": 0.6,
-        "model": ["4", 0],
+        "model": ["12", 0],
         "positive": ["5", 0],
         "negative": ["6", 0],
         "latent_image": ["8", 0]
