@@ -162,26 +162,26 @@ const createAnimateDiffI2VWorkflow = (
   
   // If using motion LoRA, add the motion LoRA loader node
   if (useMotionLora) {
-    // Load motion LoRA and apply it to the motion model
+    // Load motion LoRA using the correct node type
     baseWorkflow["13"] = {
       "inputs": {
+        "motion_model": ["3", 0],
         "lora_name": videoSettings.motionLora,
         "strength": videoSettings.motionLoraStrength
       },
-      "class_type": "ADE_LoadAnimateDiffModelWithCameraCtrl",
-      "_meta": { "title": "Load Motion LoRA" }
+      "class_type": "ADE_AttachLoraToMotionModel",
+      "_meta": { "title": "Attach Motion LoRA" }
     };
     
-    // Apply motion model with LoRA
+    // Apply motion model with LoRA attached
     baseWorkflow["4"] = {
       "inputs": {
-        "motion_model": ["3", 0],
-        "motion_lora": ["13", 0],
+        "motion_model": ["13", 0],
         "start_percent": 0,
         "end_percent": 1
       },
-      "class_type": "ADE_ApplyAnimateDiffModelWithCameraCtrl",
-      "_meta": { "title": "Apply AnimateDiff + Motion LoRA" }
+      "class_type": "ADE_ApplyAnimateDiffModel",
+      "_meta": { "title": "Apply AnimateDiff Model" }
     };
   } else {
     // Standard motion model application without LoRA
