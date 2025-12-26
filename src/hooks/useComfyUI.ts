@@ -381,15 +381,14 @@ export function useComfyUI() {
     throw new Error("Generation timed out");
   }, [checkQueue, getHistory, getImageData]);
 
-  // Poll for video completion
+  // Poll for video completion - waits indefinitely until job completes
   const pollForVideoCompletion = useCallback(async (
     promptId: string,
-    maxAttempts: number = 600, // Video takes much longer - 20 min timeout (600 * 2s)
     interval: number = 2000
   ): Promise<ComfyUIVideoResult> => {
-    let attempts = 0;
+    let pollCount = 0;
     
-    while (attempts < maxAttempts) {
+    while (true) {
       const inQueue = await checkQueue(promptId);
       
       if (!inQueue) {
@@ -446,13 +445,14 @@ export function useComfyUI() {
         throw new Error("Video generation completed but no video found. Make sure AnimateDiff and VHS nodes are installed.");
       }
       
-      setVideoProgress(Math.min((attempts / maxAttempts) * 100, 95));
+      // Show elapsed time in progress (pulse between 10-90% to indicate ongoing work)
+      pollCount++;
+      const elapsed = Math.floor((pollCount * interval) / 1000);
+      console.log(`Video generation in progress... ${elapsed}s elapsed`);
+      setVideoProgress(10 + (Math.sin(pollCount * 0.2) + 1) * 40); // Pulses 10-90%
       
       await new Promise(resolve => setTimeout(resolve, interval));
-      attempts++;
     }
-    
-    throw new Error("Video generation timed out");
   }, [checkQueue, getHistory, getImageData]);
 
   // Main function to generate an image
