@@ -1509,13 +1509,19 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
             imageUrl = imageRes.data.imageUrl;
           }
 
+          // When using local mode, videos are skipped so mark as complete
+          const shouldGenerateVideo = autoGenerateVideo && !useLocalGeneration;
           setScenes(prev => prev.map((s, idx) => 
-            idx === i ? { ...s, imageUrl, status: autoGenerateVideo ? 'generating-video' : 'complete' } : s
+            idx === i ? { ...s, imageUrl, status: shouldGenerateVideo ? 'generating-video' : 'complete' } : s
           ));
         }
 
-        // Generate video if enabled
-        if (autoGenerateVideo) {
+        // Generate video if enabled - but skip if using local mode (no local video generation support yet)
+        if (autoGenerateVideo && useLocalGeneration && i === 0) {
+          toast.info("Video generation skipped in Local mode. Images only.", { duration: 5000 });
+        }
+        
+        if (autoGenerateVideo && !useLocalGeneration) {
           const motionPrompt = MOTION_PRESETS[motionPreset].prompt;
           const sizeConfig = VIDEO_SIZES[videoSize];
           const fpsValue = FPS_OPTIONS[videoFps].value;
