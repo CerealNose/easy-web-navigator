@@ -86,21 +86,41 @@ export function SettingsPanel() {
     setLocalBaseUrl(comfyUIConfig.baseUrl);
   }, [comfyUIConfig.baseUrl]);
 
-  // Check connection and fetch checkpoints when dialog opens
+  // Check connection when dialog opens (runs async check safely via context fn)
   useEffect(() => {
-    if (open && (inferenceMode === "local" || inferenceMode === "hybrid")) {
-      if (!comfyUIConfig.baseUrl.includes("your-tunnel-url")) {
-        handleCheckConnection();
+    if (!open) return;
+    if (inferenceMode !== "local" && inferenceMode !== "hybrid") return;
+    if (comfyUIConfig.baseUrl.includes("your-tunnel-url")) return;
+
+    let cancelled = false;
+    const run = async () => {
+      setIsChecking(true);
+      const ok = await checkComfyUIConnection();
+      if (cancelled) return;
+      setIsChecking(false);
+      if (ok) {
+        toast.success("ComfyUI connected!");
       }
-    }
-  }, [open, inferenceMode]);
+    };
+    run();
+    return () => { cancelled = true; };
+  }, [open, inferenceMode, comfyUIConfig.baseUrl, checkComfyUIConnection]);
 
   // Fetch checkpoints when connected
   useEffect(() => {
-    if (isComfyUIConnected && open) {
-      handleFetchCheckpoints();
-    }
-  }, [isComfyUIConnected, open]);
+    if (!isComfyUIConnected || !open) return;
+
+    let cancelled = false;
+    const run = async () => {
+      setIsFetchingModels(true);
+      const list = await fetchCheckpoints();
+      if (cancelled) return;
+      setIsFetchingModels(false);
+      if (list.length > 0) toast.success(`Found ${list.length} checkpoint(s)`);
+    };
+    run();
+    return () => { cancelled = true; };
+  }, [isComfyUIConnected, open, fetchCheckpoints]);
 
   const handleFetchCheckpoints = async () => {
     setIsFetchingModels(true);
