@@ -15,6 +15,7 @@ interface ComfyUIVideoResult {
 interface HistoryOutput {
   images?: Array<{ filename: string; subfolder: string; type: string }>;
   gifs?: Array<{ filename: string; subfolder: string; type: string }>;
+  videos?: Array<{ filename: string; subfolder: string; type: string; format?: string }>;
 }
 
 interface HistoryItem {
@@ -377,13 +378,17 @@ export function useComfyUI() {
       
       if (!inQueue) {
         const history = await getHistory(promptId);
+        console.log("Video generation history:", JSON.stringify(history, null, 2));
         
         if (history) {
           for (const nodeId of Object.keys(history.outputs)) {
             const output = history.outputs[nodeId];
-            // Check for gifs/videos (VHS_VideoCombine outputs)
+            console.log(`Checking node ${nodeId} output:`, output);
+            
+            // Check for gifs array (VHS_VideoCombine outputs here)
             if (output.gifs && output.gifs.length > 0) {
               const video = output.gifs[0];
+              console.log("Found video in gifs array:", video);
               const videoData = await getImageData(video.filename, video.subfolder, video.type);
               
               return {
@@ -391,10 +396,27 @@ export function useComfyUI() {
                 seed: 0,
               };
             }
-            // Also check images array for mp4 files
+            
+            // Check for videos array (alternative VHS output)
+            if ((output as HistoryOutput & { videos?: Array<{ filename: string; subfolder: string; type: string }> }).videos?.length) {
+              const video = (output as HistoryOutput & { videos: Array<{ filename: string; subfolder: string; type: string }> }).videos[0];
+              console.log("Found video in videos array:", video);
+              const videoData = await getImageData(video.filename, video.subfolder, video.type);
+              return {
+                videoUrl: videoData,
+                seed: 0,
+              };
+            }
+            
+            // Check images array for mp4/gif files
             if (output.images && output.images.length > 0) {
-              const file = output.images.find(f => f.filename.endsWith('.mp4') || f.filename.endsWith('.gif'));
+              const file = output.images.find(f => 
+                f.filename.endsWith('.mp4') || 
+                f.filename.endsWith('.gif') ||
+                f.filename.endsWith('.webm')
+              );
               if (file) {
+                console.log("Found video in images array:", file);
                 const videoData = await getImageData(file.filename, file.subfolder, file.type);
                 return {
                   videoUrl: videoData,
