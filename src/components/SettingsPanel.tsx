@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -80,19 +80,34 @@ export function SettingsPanel() {
   const [isFetchingModels, setIsFetchingModels] = useState(false);
   const [localBaseUrl, setLocalBaseUrl] = useState(comfyUIConfig.baseUrl);
   const [testImageUrl, setTestImageUrl] = useState<string | null>(null);
+  
+  // Refs to prevent duplicate async calls
+  const connectionCheckedRef = useRef(false);
+  const checkpointsFetchedRef = useRef(false);
+
+  // Reset refs when dialog closes
+  useEffect(() => {
+    if (!open) {
+      connectionCheckedRef.current = false;
+      checkpointsFetchedRef.current = false;
+    }
+  }, [open]);
 
   // Sync local state when config changes
   useEffect(() => {
     setLocalBaseUrl(comfyUIConfig.baseUrl);
   }, [comfyUIConfig.baseUrl]);
 
-  // Check connection when dialog opens (runs async check safely via context fn)
+  // Check connection when dialog opens (runs once per open)
   useEffect(() => {
     if (!open) return;
     if (inferenceMode !== "local" && inferenceMode !== "hybrid") return;
     if (comfyUIConfig.baseUrl.includes("your-tunnel-url")) return;
+    if (connectionCheckedRef.current) return;
 
+    connectionCheckedRef.current = true;
     let cancelled = false;
+
     const run = async () => {
       setIsChecking(true);
       const ok = await checkComfyUIConnection();
@@ -106,11 +121,14 @@ export function SettingsPanel() {
     return () => { cancelled = true; };
   }, [open, inferenceMode, comfyUIConfig.baseUrl, checkComfyUIConnection]);
 
-  // Fetch checkpoints when connected
+  // Fetch checkpoints once when connected
   useEffect(() => {
     if (!isComfyUIConnected || !open) return;
+    if (checkpointsFetchedRef.current) return;
 
+    checkpointsFetchedRef.current = true;
     let cancelled = false;
+
     const run = async () => {
       setIsFetchingModels(true);
       const list = await fetchCheckpoints();
