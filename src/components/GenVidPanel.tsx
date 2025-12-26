@@ -170,6 +170,8 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
   const {
     generateImage: generateLocalImage,
     generateVideo: generateLocalVideo,
+    generateLongVideo,
+    getMaxClipDuration,
     progress: localProgress,
     videoProgressInfo,
   } = useComfyUI();
@@ -1579,38 +1581,75 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
 
           if (useLocalGeneration) {
             try {
-              toast.info(`Scene ${i + 1}: Generating video locally (ComfyUI AnimateDiff)...`, { duration: 8000 });
-
-              // Local duration is controlled by frames / frameRate (NOT a separate "seconds" param)
-              // AnimateDiff v3 (v3_sd15_mm.ckpt) has a hard 32-frame limit without context windows
-              const targetSeconds = Math.min(sceneList[i].duration, 10);
+              const targetSeconds = sceneList[i].duration;
+              const maxClipDuration = getMaxClipDuration();
               const localFps = Math.max(1, Math.min(videoSettings.frameRate ?? 6, 60));
+              
+              // Check if we need to split into multiple clips
+              const needsSplitting = targetSeconds > maxClipDuration;
+              
+              if (needsSplitting) {
+                const numClips = Math.ceil(targetSeconds / maxClipDuration);
+                toast.info(`Scene ${i + 1}: Generating ${numClips} clips × ${maxClipDuration.toFixed(1)}s = ${(numClips * maxClipDuration).toFixed(1)}s total...`, { duration: 10000 });
+                
+                // Use generateLongVideo for auto-splitting
+                const longVideoResult = await generateLongVideo(imageUrl, videoPrompt, targetSeconds, {
+                  seed: typeof videoSeed === "number" ? videoSeed : undefined,
+                  onClipProgress: (clipIndex, totalClips, clipUrl) => {
+                    if (clipUrl) {
+                      toast.success(`Scene ${i + 1}: Clip ${clipIndex + 1}/${totalClips} complete`, { duration: 3000 });
+                    } else {
+                      toast.info(`Scene ${i + 1}: Generating clip ${clipIndex + 1}/${totalClips}...`, { duration: 5000 });
+                    }
+                  },
+                });
+                
+                // For now, use the last generated clip as the scene video
+                // (In the future, these could be stitched together with ffmpeg.wasm)
+                const videoUrl = longVideoResult.videoUrls[longVideoResult.videoUrls.length - 1];
+                
+                // Store all clip URLs in the scene for potential stitching later
+                setScenes(prev => prev.map((s, idx) =>
+                  idx === i ? { 
+                    ...s, 
+                    videoUrl, 
+                    status: 'complete',
+                    // @ts-ignore - Extended property for multi-clip storage
+                    clipUrls: longVideoResult.videoUrls,
+                  } : s
+                ));
+                
+                toast.success(`Scene ${i + 1}: Generated ${longVideoResult.videoUrls.length} clips (${longVideoResult.totalDuration.toFixed(1)}s total)`, { duration: 5000 });
+              } else {
+                // Single clip generation
+                toast.info(`Scene ${i + 1}: Generating video locally (ComfyUI AnimateDiff)...`, { duration: 8000 });
 
-              const maxLocalFrames = 32; // AnimateDiff v3 hard limit
-              const requestedFrames = Math.max(8, Math.round(targetSeconds * localFps));
-              const localFrames = Math.min(maxLocalFrames, requestedFrames);
+                const maxLocalFrames = 32; // AnimateDiff v3 hard limit
+                const requestedFrames = Math.max(8, Math.round(targetSeconds * localFps));
+                const localFrames = Math.min(maxLocalFrames, requestedFrames);
 
-              if (localFrames !== requestedFrames) {
-                const cappedSeconds = (localFrames / localFps).toFixed(1);
-                toast.warning(
-                  `Scene ${i + 1}: AnimateDiff max 32 frames → ~${cappedSeconds}s at ${localFps}fps`,
-                  { duration: 8000 }
-                );
+                if (localFrames !== requestedFrames) {
+                  const cappedSeconds = (localFrames / localFps).toFixed(1);
+                  toast.warning(
+                    `Scene ${i + 1}: AnimateDiff max 32 frames → ~${cappedSeconds}s at ${localFps}fps`,
+                    { duration: 8000 }
+                  );
+                }
+
+                const localVideo = await generateLocalVideo(imageUrl, videoPrompt, {
+                  seed: typeof videoSeed === "number" ? videoSeed : undefined,
+                  settingsOverride: {
+                    frameRate: localFps,
+                    frames: localFrames,
+                  },
+                });
+
+                const videoUrl = localVideo.videoUrl;
+
+                setScenes(prev => prev.map((s, idx) =>
+                  idx === i ? { ...s, videoUrl, status: 'complete' } : s
+                ));
               }
-
-              const localVideo = await generateLocalVideo(imageUrl, videoPrompt, {
-                seed: typeof videoSeed === "number" ? videoSeed : undefined,
-                settingsOverride: {
-                  frameRate: localFps,
-                  frames: localFrames,
-                },
-              });
-
-              const videoUrl = localVideo.videoUrl;
-
-              setScenes(prev => prev.map((s, idx) =>
-                idx === i ? { ...s, videoUrl, status: 'complete' } : s
-              ));
 
               // Track clip duration and recalculate estimated clips
               const clipDuration = sceneList[i].duration;
@@ -1630,10 +1669,11 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
               });
 
               // Extract last frame for continuity with next scene
-              if (useFrameContinuity && videoUrl) {
+              const lastVideoUrl = needsSplitting ? undefined : scenes[i]?.videoUrl;
+              if (useFrameContinuity && lastVideoUrl) {
                 setIsExtractingFrame(true);
                 console.log(`Scene ${i + 1}: Extracting last frame for continuity...`);
-                const lastFrame = await extractLastFrame(videoUrl);
+                const lastFrame = await extractLastFrame(lastVideoUrl);
                 setIsExtractingFrame(false);
 
                 if (lastFrame) {
