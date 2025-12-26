@@ -11,7 +11,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { lyricLine, sceneIndex, totalScenes, styleHint, previousPrompt, storyline, narrativeBeat, useSilhouetteMode } = await req.json();
+    const { lyricLine, sceneIndex, totalScenes, styleHint, previousPrompt, storyline, narrativeBeat, useSilhouetteMode, motionHint } = await req.json();
 
     if (!lyricLine || typeof lyricLine !== "string") {
       return new Response(
@@ -68,18 +68,21 @@ Do NOT change any physical features. Use this EXACT description when the protago
 ${storylineContext}
 ${characterStyleInstructions}
 
-For this lyric line, generate a UNIQUE, DETAILED cinematic image prompt that:
+For this lyric line, generate a UNIQUE, DETAILED cinematic VIDEO prompt that:
 1. ${useSilhouetteMode ? "Shows characters as SILHOUETTES with dramatic backlighting" : characterDescription ? `ALWAYS includes the EXACT protagonist description: "${characterDescription}"` : "Creates visually compelling characters"}
 2. Advances the storyline at this point in the narrative
 3. Incorporates the visual motifs and setting from the storyline
 4. Uses concrete visual elements (lighting, camera angle, color palette)
 5. Differs from previous scenes while maintaining story coherence
+6. DESCRIBES MOTION AND MOVEMENT - what is happening, how the camera moves, how subjects move
+
+${motionHint ? `MOTION STYLE: ${motionHint}` : "Include natural motion appropriate to the scene mood."}
 
 Scene ${sceneIndex + 1} of ${totalScenes}.
 ${previousPrompt ? `IMPORTANT: Make this scene DIFFERENT visually from the previous one which was: "${previousPrompt.slice(0, 100)}..."` : ""}
 ${styleHint ? `Overall style direction: ${styleHint}` : ""}
 
-Return ONLY the image prompt text, nothing else. The prompt should be 1-2 sentences, specific and visual.${useSilhouetteMode ? " Characters MUST be silhouettes." : ""}`;
+Return ONLY the video prompt text, nothing else. The prompt should be 2-3 sentences describing the VISUAL SCENE and the MOTION/MOVEMENT.${useSilhouetteMode ? " Characters MUST be silhouettes." : ""}`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -91,7 +94,7 @@ Return ONLY the image prompt text, nothing else. The prompt should be 1-2 senten
         model: "google/gemini-2.5-flash",
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: `Create a unique cinematic image prompt for this lyric: "${lyricLine}"` }
+          { role: "user", content: `Create a unique cinematic video prompt for this lyric: "${lyricLine}". Include motion description.` }
         ],
         temperature: 0.9, // Higher for more variety
       }),

@@ -643,7 +643,8 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
             previousPrompt: prompts[i - 1]?.prompt || "",
             storyline: selectedStoryline,
             narrativeBeat,
-            useSilhouetteMode
+            useSilhouetteMode,
+            motionHint: MOTION_PRESETS[motionPreset].prompt
           }
         });
         
@@ -826,7 +827,8 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
               previousPrompt: generatedImages.length > 0 ? scenePrompt : "",
               storyline: selectedStoryline,
               narrativeBeat,
-              useSilhouetteMode
+              useSilhouetteMode,
+              motionHint: MOTION_PRESETS[motionPreset].prompt
             }
           });
           
@@ -1278,7 +1280,8 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
           previousPrompt: index > 0 ? editableScenes[index - 1]?.prompt : null,
           storyline: storyline,
           narrativeBeat: narrativeBeat,
-          useSilhouetteMode: useSilhouetteMode
+          useSilhouetteMode: useSilhouetteMode,
+          motionHint: MOTION_PRESETS[motionPreset].prompt
         }
       });
 
@@ -1400,7 +1403,8 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
                 previousPrompt: previousScenePrompt,
                 storyline: storyline,
                 narrativeBeat: narrativeBeat,
-                useSilhouetteMode: useSilhouetteMode
+                useSilhouetteMode: useSilhouetteMode,
+                motionHint: MOTION_PRESETS[motionPreset].prompt
               }
             });
             
