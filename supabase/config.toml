@@ -29,3 +29,6 @@ verify_jwt = false
 
 [functions.retrieve-predictions]
 verify_jwt = false
+
+[functions.suggest-motion]
+verify_jwt = false

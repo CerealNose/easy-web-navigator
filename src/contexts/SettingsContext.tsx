@@ -39,6 +39,7 @@ export interface MotionLoraOption {
 
 export const MOTION_LORA_OPTIONS: MotionLoraOption[] = [
   { value: "none", label: "None", description: "No camera motion LoRA" },
+  { value: "auto", label: "Smart (AI)", description: "AI analyzes prompt and picks best motion", icon: "sparkles" },
   { value: "v2_lora_PanLeft.ckpt", label: "Pan Left", description: "Camera pans left" },
   { value: "v2_lora_PanRight.ckpt", label: "Pan Right", description: "Camera pans right" },
   { value: "v2_lora_ZoomIn.ckpt", label: "Zoom In", description: "Camera zooms in" },

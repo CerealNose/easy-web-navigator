@@ -1,7 +1,19 @@
 import { useState, useCallback } from "react";
 import { useSettings, VideoSettings } from "@/contexts/SettingsContext";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
+// Map AI motion names to LoRA filenames for smart motion
+const MOTION_TO_LORA: Record<string, string> = {
+  'PanLeft': 'v2_lora_PanLeft.ckpt',
+  'PanRight': 'v2_lora_PanRight.ckpt',
+  'ZoomIn': 'v2_lora_ZoomIn.ckpt',
+  'ZoomOut': 'v2_lora_ZoomOut.ckpt',
+  'TiltUp': 'v2_lora_TiltUp.ckpt',
+  'TiltDown': 'v2_lora_TiltDown.ckpt',
+  'RollingClockwise': 'v2_lora_RollingClockwise.ckpt',
+  'RollingAnticlockwise': 'v2_lora_RollingAnticlockwise.ckpt',
+};
 interface ComfyUIWorkflowResult {
   imageUrl: string;
   seed: number;
@@ -719,7 +731,37 @@ export function useComfyUI() {
     } = options;
     
     // Merge current video settings with any overrides
-    const settings = { ...videoSettings, ...settingsOverride };
+    let settings = { ...videoSettings, ...settingsOverride };
+
+    // Resolve "auto" motion using AI
+    if (settings.motionLora === 'auto') {
+      try {
+        const { data, error } = await supabase.functions.invoke('suggest-motion', {
+          body: { prompt: motionPrompt }
+        });
+        
+        if (!error && data && !data.error) {
+          const loraFilename = MOTION_TO_LORA[data.motion] || 'v2_lora_ZoomIn.ckpt';
+          settings = { 
+            ...settings, 
+            motionLora: loraFilename,
+            motionLoraStrength: Math.min(1.2, Math.max(0.4, data.strength || 0.7))
+          };
+          toast.success(`Smart Motion: ${data.motion}`, {
+            description: data.reason
+          });
+          console.log(`Smart Motion selected: ${data.motion} (${loraFilename}) at strength ${settings.motionLoraStrength}`);
+        } else {
+          // Fallback to ZoomIn if AI fails
+          settings = { ...settings, motionLora: 'v2_lora_ZoomIn.ckpt', motionLoraStrength: 0.7 };
+          console.warn('Smart Motion fallback to ZoomIn:', error || data?.error);
+        }
+      } catch (err) {
+        // Fallback to ZoomIn if AI call fails
+        settings = { ...settings, motionLora: 'v2_lora_ZoomIn.ckpt', motionLoraStrength: 0.7 };
+        console.warn('Smart Motion fallback to ZoomIn:', err);
+      }
+    }
 
     // Check connection first
     const connected = await checkConnection();

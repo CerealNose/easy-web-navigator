@@ -372,6 +372,7 @@ export function VideoSettingsPanel() {
               const isSelected = videoSettings.motionLora === opt.value;
               const getIcon = () => {
                 switch (opt.value) {
+                  case "auto": return <Sparkles className="w-3.5 h-3.5 text-yellow-500" />;
                   case "v2_lora_PanLeft.ckpt": return <MoveLeft className="w-3.5 h-3.5" />;
                   case "v2_lora_PanRight.ckpt": return <MoveRight className="w-3.5 h-3.5" />;
                   case "v2_lora_ZoomIn.ckpt": return <ZoomIn className="w-3.5 h-3.5" />;
@@ -403,7 +404,7 @@ export function VideoSettingsPanel() {
               );
             })}
           </div>
-          {videoSettings.motionLora !== "none" && (
+          {videoSettings.motionLora !== "none" && videoSettings.motionLora !== "auto" && (
             <div className="space-y-1">
               <Label className="text-xs">
                 LoRA Strength ({videoSettings.motionLoraStrength.toFixed(2)})
@@ -419,6 +420,12 @@ export function VideoSettingsPanel() {
                 Higher = stronger camera movement
               </p>
             </div>
+          )}
+          {videoSettings.motionLora === "auto" && (
+            <p className="text-xs text-muted-foreground bg-yellow-500/10 px-2 py-1.5 rounded border border-yellow-500/20">
+              <Sparkles className="w-3 h-3 inline mr-1" />
+              AI will analyze your prompt and select the best camera motion automatically
+            </p>
           )}
         </div>
 
