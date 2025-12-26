@@ -407,7 +407,7 @@ export function VideoSettingsPanel() {
           {videoSettings.motionLora !== "none" && videoSettings.motionLora !== "auto" && (
             <div className="space-y-1">
               <Label className="text-xs">
-                LoRA Strength ({videoSettings.motionLoraStrength.toFixed(2)})
+                LoRA Strength ({(videoSettings.motionLoraStrength ?? 0.8).toFixed(2)})
               </Label>
               <Slider
                 value={[videoSettings.motionLoraStrength]}
