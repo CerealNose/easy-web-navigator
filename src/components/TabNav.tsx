@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { Music, Image, AudioLines, Video, Download } from "lucide-react";
+import { Music, Image, AudioLines, Video, Download, Zap } from "lucide-react";
 
 interface Tab {
   id: string;
@@ -12,7 +12,8 @@ const tabs: Tab[] = [
   { id: "analyze", label: "Analyze Lyrics", icon: <Music className="w-5 h-5" />, emoji: "🎵" },
   { id: "mood", label: "Mood Image", icon: <Image className="w-5 h-5" />, emoji: "🎨" },
   { id: "timestamps", label: "Timestamps", icon: <AudioLines className="w-5 h-5" />, emoji: "🎤" },
-  { id: "genvid", label: "GenVid", icon: <Video className="w-5 h-5" />, emoji: "🎬" },
+  { id: "simple", label: "Simple Video", icon: <Zap className="w-5 h-5" />, emoji: "⚡" },
+  { id: "genvid", label: "Advanced", icon: <Video className="w-5 h-5" />, emoji: "🎬" },
   { id: "retrieve", label: "Retrieve", icon: <Download className="w-5 h-5" />, emoji: "📥" },
 ];
 
