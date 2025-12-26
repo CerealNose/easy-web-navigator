@@ -775,17 +775,16 @@ export function useComfyUI() {
     } = options;
 
     const settings = { ...videoSettings, ...settingsOverride };
-    const maxClipDuration = settings.frames / settings.frameRate;
     
-    // Calculate number of clips needed
-    const numClips = Math.ceil(requestedDurationSeconds / maxClipDuration);
-    const actualClipDuration = requestedDurationSeconds / numClips;
+    // Use the user's exact settings - each clip will be frames/frameRate seconds
+    const clipDuration = settings.frames / settings.frameRate;
     
-    console.log(`Long video generation: ${requestedDurationSeconds}s requested, ${numClips} clips of ~${actualClipDuration.toFixed(1)}s each (max ${maxClipDuration.toFixed(1)}s per clip)`);
+    // Calculate number of clips needed to reach requested duration
+    const numClips = Math.ceil(requestedDurationSeconds / clipDuration);
+    const totalDuration = numClips * clipDuration;
     
-    // Adjust frames to match actual clip duration
-    const adjustedFrames = Math.round(actualClipDuration * settings.frameRate);
-    const adjustedSettings = { ...settings, frames: adjustedFrames };
+    console.log(`Long video generation: ${requestedDurationSeconds}s requested → ${numClips} clips × ${clipDuration.toFixed(1)}s = ${totalDuration.toFixed(1)}s total`);
+    console.log(`Using settings: ${settings.frames} frames @ ${settings.frameRate}fps, ${settings.width}x${settings.height}, sampler=${settings.sampler}, steps=${settings.steps}`);
     
     const videoUrls: string[] = [];
     let currentImageUrl = imageUrl;
@@ -798,7 +797,7 @@ export function useComfyUI() {
         const clipSeed = seed + i; // Vary seed slightly for each clip
         const result = await generateVideo(currentImageUrl, motionPrompt, {
           seed: clipSeed,
-          settingsOverride: adjustedSettings,
+          settingsOverride: settings, // Use exact user settings, no modification
         });
         
         videoUrls.push(result.videoUrl);
@@ -819,7 +818,7 @@ export function useComfyUI() {
     
     return {
       videoUrls,
-      totalDuration: numClips * actualClipDuration,
+      totalDuration: numClips * clipDuration,
     };
   }, [videoSettings, generateVideo]);
 
