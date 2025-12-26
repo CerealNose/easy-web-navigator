@@ -172,7 +172,7 @@ const callComfyUIProxy = async (
   params: Record<string, unknown> = {}
 ) => {
   const { data, error } = await supabase.functions.invoke("comfyui-proxy", {
-    body: { comfyuiUrl: baseUrl, action, ...params },
+    body: { comfyUrl: baseUrl, action, ...params },
   });
   if (error) throw error;
   return data;
