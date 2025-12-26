@@ -35,26 +35,35 @@ interface Scene {
 
 export function SimpleVideoPanel() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const dropZoneRef = useRef<HTMLDivElement | null>(null);
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
   const [finalVideoUrl, setFinalVideoUrl] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   const { isComfyUIConnected, comfyUIConfig } = useSettings();
   const { generateImage, isGenerating: isGeneratingImage, progress: imageProgress } = useComfyUI();
   const { generateVideo, isGenerating: isGeneratingVideo, progress: videoProgress, progressMessage } = useWanVideo();
   const { stitchVideos, isStitching, progress: stitchProgress } = useVideoStitcher();
 
-  // Add image/video from file
-  const handleImageUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+  // Process files (shared by input and drag-drop)
+  const processFiles = useCallback((files: FileList | File[]) => {
+    const fileArray = Array.from(files);
+    const validFiles = fileArray.filter(f => 
+      f.type.startsWith('image/') || f.type.startsWith('video/')
+    );
 
-    toast.success(`Selected ${files.length} file(s)`);
+    if (validFiles.length === 0) {
+      toast.error("No valid image or video files");
+      return;
+    }
+
+    toast.success(`Adding ${validFiles.length} file(s)`);
 
     const newScenes: Scene[] = [];
 
-    Array.from(files).forEach((file) => {
+    validFiles.forEach((file) => {
       const reader = new FileReader();
       reader.onload = (event) => {
         const imageUrl = event.target?.result as string;
@@ -67,7 +76,7 @@ export function SimpleVideoPanel() {
           status: 'pending'
         });
 
-        if (newScenes.length === files.length) {
+        if (newScenes.length === validFiles.length) {
           setScenes(prev => [...prev, ...newScenes]);
         }
       };
@@ -76,9 +85,47 @@ export function SimpleVideoPanel() {
       };
       reader.readAsDataURL(file);
     });
-
-    e.target.value = '';
   }, []);
+
+  // Handle file input change
+  const handleImageUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    processFiles(files);
+    e.target.value = '';
+  }, [processFiles]);
+
+  // Drag and drop handlers
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Only set dragging false if we're leaving the dropzone entirely
+    if (!dropZoneRef.current?.contains(e.relatedTarget as Node)) {
+      setIsDragging(false);
+    }
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      processFiles(files);
+    }
+  }, [processFiles]);
 
   // Generate image for a scene using ComfyUI
   const handleGenerateImage = useCallback(async (sceneId: string) => {
@@ -244,7 +291,7 @@ export function SimpleVideoPanel() {
         </div>
       </div>
 
-      {/* Upload area */}
+      {/* Upload area with drag-and-drop */}
       <div className="flex gap-2">
         <input
           ref={fileInputRef}
@@ -256,9 +303,14 @@ export function SimpleVideoPanel() {
         />
 
         <div
+          ref={dropZoneRef}
           role="button"
           tabIndex={0}
-          className="flex-1 border-2 border-dashed border-muted-foreground/25 rounded-lg p-6 text-center cursor-pointer hover:border-primary/50 transition-colors"
+          className={`flex-1 border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-all relative ${
+            isDragging 
+              ? 'border-primary bg-primary/10 scale-[1.02]' 
+              : 'border-muted-foreground/25 hover:border-primary/50'
+          }`}
           onClick={() => fileInputRef.current?.click()}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
@@ -266,11 +318,23 @@ export function SimpleVideoPanel() {
               fileInputRef.current?.click();
             }
           }}
+          onDragEnter={handleDragEnter}
+          onDragLeave={handleDragLeave}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
           aria-label="Upload images or videos"
         >
-          <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">
-            Drop images/videos or click to upload
+          {isDragging && (
+            <div className="absolute inset-0 flex items-center justify-center bg-primary/20 rounded-lg backdrop-blur-sm z-10">
+              <div className="text-center">
+                <Upload className="h-12 w-12 mx-auto mb-2 text-primary animate-bounce" />
+                <p className="text-lg font-semibold text-primary">Drop files here</p>
+              </div>
+            </div>
+          )}
+          <Upload className={`h-8 w-8 mx-auto mb-2 ${isDragging ? 'text-primary' : 'text-muted-foreground'}`} />
+          <p className={`text-sm ${isDragging ? 'text-primary' : 'text-muted-foreground'}`}>
+            Drag & drop images/videos or click to upload
           </p>
         </div>
 
