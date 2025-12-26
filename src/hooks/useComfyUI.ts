@@ -337,12 +337,24 @@ export function useComfyUI() {
       
       if (!inQueue) {
         const history = await getHistory(promptId);
+        console.log("Image generation history:", JSON.stringify(history, null, 2));
         
         if (history) {
           for (const nodeId of Object.keys(history.outputs)) {
             const output = history.outputs[nodeId];
+            console.log(`Checking node ${nodeId} output:`, JSON.stringify(output, null, 2));
+            
+            // Check for images array (standard SaveImage node output)
             if (output.images && output.images.length > 0) {
-              const image = output.images[0];
+              // Filter for actual images, not videos
+              const image = output.images.find(f => 
+                f.filename.endsWith('.png') || 
+                f.filename.endsWith('.jpg') ||
+                f.filename.endsWith('.jpeg') ||
+                f.filename.endsWith('.webp')
+              ) || output.images[0]; // Fallback to first if no image extensions found
+              
+              console.log("Found image:", image);
               const imageData = await getImageData(image.filename, image.subfolder, image.type);
               
               return {
@@ -351,9 +363,13 @@ export function useComfyUI() {
               };
             }
           }
+          
+          // If we got here with a history but no images, log all output keys for debugging
+          console.error("History found but no images. Output nodes:", Object.keys(history.outputs));
+          console.error("Full history:", JSON.stringify(history, null, 2));
         }
         
-        throw new Error("Generation completed but no image found");
+        throw new Error("Generation completed but no image found. Check ComfyUI workflow has a SaveImage node.");
       }
       
       setProgress(Math.min((attempts / maxAttempts) * 100, 95));
