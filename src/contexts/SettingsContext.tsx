@@ -16,6 +16,8 @@ export interface VideoSettings {
   frames: number;
   frameRate: number;
   motionModel: string;
+  motionLora: string; // Camera motion LoRA (e.g., PanLeft, ZoomIn)
+  motionLoraStrength: number; // Strength of motion LoRA (0-1)
   
   // Video size
   width: number;
@@ -26,6 +28,26 @@ export interface VideoSettings {
   quality: number; // CRF for h264 (lower = better, 15-25 typical)
   pingpong: boolean;
 }
+
+// Motion LoRA options for camera movement effects
+export interface MotionLoraOption {
+  value: string;
+  label: string;
+  description: string;
+  icon?: string;
+}
+
+export const MOTION_LORA_OPTIONS: MotionLoraOption[] = [
+  { value: "none", label: "None", description: "No camera motion LoRA" },
+  { value: "v2_lora_PanLeft.ckpt", label: "Pan Left", description: "Camera pans left" },
+  { value: "v2_lora_PanRight.ckpt", label: "Pan Right", description: "Camera pans right" },
+  { value: "v2_lora_ZoomIn.ckpt", label: "Zoom In", description: "Camera zooms in" },
+  { value: "v2_lora_ZoomOut.ckpt", label: "Zoom Out", description: "Camera zooms out" },
+  { value: "v2_lora_TiltUp.ckpt", label: "Tilt Up", description: "Camera tilts up" },
+  { value: "v2_lora_TiltDown.ckpt", label: "Tilt Down", description: "Camera tilts down" },
+  { value: "v2_lora_RollingClockwise.ckpt", label: "Roll Clockwise", description: "Camera rotates clockwise" },
+  { value: "v2_lora_RollingAnticlockwise.ckpt", label: "Roll Counter-clockwise", description: "Camera rotates counter-clockwise" },
+];
 
 // Setting info with descriptions and recommendations
 export interface SettingInfo {
@@ -101,6 +123,8 @@ export const DEFAULT_VIDEO_SETTINGS: VideoSettings = {
   frames: 16,
   frameRate: 8,
   motionModel: "v3_sd15_mm.ckpt",
+  motionLora: "none",
+  motionLoraStrength: 0.8,
   width: 512,
   height: 512,
   format: "video/h264-mp4",
@@ -123,6 +147,8 @@ export const VIDEO_PRESETS: VideoPreset[] = [
       frames: 30,
       frameRate: 6,
       motionModel: "v3_sd15_mm.ckpt",
+      motionLora: "none",
+      motionLoraStrength: 0.8,
       width: 512,
       height: 512,
       format: "video/h264-mp4",
@@ -143,6 +169,8 @@ export const VIDEO_PRESETS: VideoPreset[] = [
       frames: 12,
       frameRate: 8,
       motionModel: "v3_sd15_mm.ckpt",
+      motionLora: "none",
+      motionLoraStrength: 0.8,
       width: 512,
       height: 512,
       format: "video/h264-mp4",
@@ -163,6 +191,8 @@ export const VIDEO_PRESETS: VideoPreset[] = [
       frames: 16,
       frameRate: 8,
       motionModel: "v3_sd15_mm.ckpt",
+      motionLora: "none",
+      motionLoraStrength: 0.8,
       width: 512,
       height: 512,
       format: "video/h264-mp4",
@@ -183,6 +213,8 @@ export const VIDEO_PRESETS: VideoPreset[] = [
       frames: 24,
       frameRate: 12,
       motionModel: "v3_sd15_mm.ckpt",
+      motionLora: "none",
+      motionLoraStrength: 0.8,
       width: 768,
       height: 768,
       format: "video/h264-mp4",
@@ -203,6 +235,8 @@ export const VIDEO_PRESETS: VideoPreset[] = [
       frames: 24,
       frameRate: 12,
       motionModel: "v3_sd15_mm.ckpt",
+      motionLora: "none",
+      motionLoraStrength: 0.8,
       width: 512,
       height: 512,
       format: "video/h264-mp4",
@@ -223,6 +257,8 @@ export const VIDEO_PRESETS: VideoPreset[] = [
       frames: 16,
       frameRate: 10,
       motionModel: "v3_sd15_mm.ckpt",
+      motionLora: "none",
+      motionLoraStrength: 0.8,
       width: 512,
       height: 512,
       format: "image/gif",
@@ -243,6 +279,8 @@ export const VIDEO_PRESETS: VideoPreset[] = [
       frames: 32,
       frameRate: 8,
       motionModel: "v3_sd15_mm.ckpt",
+      motionLora: "none",
+      motionLoraStrength: 0.8,
       width: 1024,
       height: 576,
       format: "video/h264-mp4",

@@ -55,6 +55,7 @@ import {
   SCHEDULER_OPTIONS,
   FORMAT_OPTIONS,
   MOTION_MODEL_OPTIONS,
+  MOTION_LORA_OPTIONS,
   SAMPLER_INFO,
   SCHEDULER_INFO,
   CFG_INFO,
@@ -63,6 +64,17 @@ import {
   VIDEO_SIZE_OPTIONS,
   VideoSettings,
 } from "@/contexts/SettingsContext";
+import {
+  MoveLeft,
+  MoveRight,
+  ZoomIn,
+  ZoomOut,
+  MoveUp,
+  MoveDown,
+  RotateCw,
+  RotateCcw,
+  Camera,
+} from "lucide-react";
 
 export function VideoSettingsPanel() {
   const {
@@ -338,11 +350,85 @@ export function VideoSettingsPanel() {
           </div>
         </div>
 
+        {/* Camera Motion LoRA */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Label className="text-xs flex items-center gap-1">
+              <Camera className="w-3 h-3" />
+              Camera Motion
+            </Label>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <HelpCircle className="w-3 h-3 text-muted-foreground cursor-help" />
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-[220px]">
+                <p className="font-medium">Camera Motion LoRA</p>
+                <p className="text-xs text-muted-foreground">Apply camera movement effects like pan, zoom, or tilt. Requires motion LoRAs installed in ComfyUI.</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
+          <div className="grid grid-cols-3 gap-1.5">
+            {MOTION_LORA_OPTIONS.map((opt) => {
+              const isSelected = videoSettings.motionLora === opt.value;
+              const getIcon = () => {
+                switch (opt.value) {
+                  case "v2_lora_PanLeft.ckpt": return <MoveLeft className="w-3.5 h-3.5" />;
+                  case "v2_lora_PanRight.ckpt": return <MoveRight className="w-3.5 h-3.5" />;
+                  case "v2_lora_ZoomIn.ckpt": return <ZoomIn className="w-3.5 h-3.5" />;
+                  case "v2_lora_ZoomOut.ckpt": return <ZoomOut className="w-3.5 h-3.5" />;
+                  case "v2_lora_TiltUp.ckpt": return <MoveUp className="w-3.5 h-3.5" />;
+                  case "v2_lora_TiltDown.ckpt": return <MoveDown className="w-3.5 h-3.5" />;
+                  case "v2_lora_RollingClockwise.ckpt": return <RotateCw className="w-3.5 h-3.5" />;
+                  case "v2_lora_RollingAnticlockwise.ckpt": return <RotateCcw className="w-3.5 h-3.5" />;
+                  default: return null;
+                }
+              };
+              return (
+                <Tooltip key={opt.value}>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant={isSelected ? "default" : "outline"}
+                      size="sm"
+                      className="h-8 text-xs justify-start gap-1.5 px-2"
+                      onClick={() => updateSetting("motionLora", opt.value)}
+                    >
+                      {getIcon()}
+                      <span className="truncate">{opt.label}</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    <p>{opt.description}</p>
+                  </TooltipContent>
+                </Tooltip>
+              );
+            })}
+          </div>
+          {videoSettings.motionLora !== "none" && (
+            <div className="space-y-1">
+              <Label className="text-xs">
+                LoRA Strength ({videoSettings.motionLoraStrength.toFixed(2)})
+              </Label>
+              <Slider
+                value={[videoSettings.motionLoraStrength]}
+                onValueChange={([v]) => updateSetting("motionLoraStrength", v)}
+                min={0.1}
+                max={1.5}
+                step={0.05}
+              />
+              <p className="text-xs text-muted-foreground">
+                Higher = stronger camera movement
+              </p>
+            </div>
+          )}
+        </div>
+
         {/* Duration indicator */}
         <div className="text-xs text-muted-foreground bg-muted/30 px-3 py-2 rounded">
           Video: {videoSettings.width}×{videoSettings.height} • ~{(videoSettings.frames / videoSettings.frameRate).toFixed(1)}s
           {videoSettings.pingpong && " (doubled with pingpong)"}
+          {videoSettings.motionLora !== "none" && ` • ${MOTION_LORA_OPTIONS.find(o => o.value === videoSettings.motionLora)?.label}`}
         </div>
+
 
         {/* Advanced Settings Collapsible */}
         <Collapsible open={isAdvancedOpen} onOpenChange={setIsAdvancedOpen}>
