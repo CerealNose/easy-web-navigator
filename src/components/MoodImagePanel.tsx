@@ -136,33 +136,43 @@ export function MoodImagePanel({ prompt, themes, onPromptChange }: MoodImagePane
     setIsGeneratingVideo(true);
     try {
       if (useLocalGeneration) {
-        // Use local ComfyUI with AnimateDiff
-        toast.info("Generating video with local ComfyUI (AnimateDiff)...");
-        const result = await generateLocalVideo(generatedImage, videoPrompt, {
-          frames: 16,
-        });
-        setGeneratedVideo(result.videoUrl);
-        toast.success(`Video generated locally! (seed: ${result.seed})`);
-      } else {
-        // Use cloud (Replicate)
-        const { data, error } = await supabase.functions.invoke("generate-video", {
-          body: { 
-            imageUrl: generatedImage,
-            prompt: videoPrompt,
-            duration: 3
+        // Try local ComfyUI with AnimateDiff
+        try {
+          toast.info("Generating video with local ComfyUI (AnimateDiff)...");
+          const result = await generateLocalVideo(generatedImage, videoPrompt, {
+            frames: 16,
+          });
+          setGeneratedVideo(result.videoUrl);
+          toast.success(`Video generated locally! (seed: ${result.seed})`);
+          return;
+        } catch (localError) {
+          // Check if AnimateDiff isn't installed - fall back to cloud
+          if (localError instanceof Error && localError.message === "ANIMATEDIFF_NOT_INSTALLED") {
+            toast.warning("AnimateDiff not installed locally, falling back to cloud...");
+          } else {
+            throw localError;
           }
-        });
-
-        if (error) throw new Error(error.message);
-        if (data.error) throw new Error(data.error);
-
-        toast.info("Video generation started, this may take a few minutes...");
-        
-        // Poll for completion
-        const videoUrl = await pollForVideoCompletion(data.taskId);
-        setGeneratedVideo(videoUrl);
-        toast.success("Video generated via cloud!");
+        }
       }
+      
+      // Use cloud (Replicate)
+      const { data, error } = await supabase.functions.invoke("generate-video", {
+        body: { 
+          imageUrl: generatedImage,
+          prompt: videoPrompt,
+          duration: 3
+        }
+      });
+
+      if (error) throw new Error(error.message);
+      if (data.error) throw new Error(data.error);
+
+      toast.info("Video generation started, this may take a few minutes...");
+      
+      // Poll for completion
+      const videoUrl = await pollForVideoCompletion(data.taskId);
+      setGeneratedVideo(videoUrl);
+      toast.success("Video generated via cloud!");
     } catch (err) {
       console.error("Video generation error:", err);
       toast.error(err instanceof Error ? err.message : "Failed to generate video");

@@ -87,6 +87,14 @@ serve(async (req) => {
         });
         break;
 
+      case 'get_object_info':
+        const nodeClass = payload?.node_class || '';
+        response = await fetch(`${comfyUrl}/object_info/${nodeClass}`, {
+          method: 'GET',
+          headers: { 'Accept': 'application/json' },
+        });
+        break;
+
       default:
         return new Response(
           JSON.stringify({ error: `Unknown action: ${action}` }),

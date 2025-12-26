@@ -450,6 +450,16 @@ export function useComfyUI() {
     }
   }, [checkConnection, getComfyUrl, comfyUIConfig.selectedCheckpoint, queuePrompt, pollForCompletion]);
 
+  // Check if AnimateDiff nodes are available
+  const checkAnimateDiffAvailable = useCallback(async (): Promise<boolean> => {
+    try {
+      const data = await callComfyUIProxy('get_object_info', getComfyUrl(), { node_class: 'ADE_LoadAnimateDiffModel' });
+      return !!data?.ADE_LoadAnimateDiffModel;
+    } catch {
+      return false;
+    }
+  }, [getComfyUrl]);
+
   // Generate video from image using AnimateDiff
   const generateVideo = useCallback(async (
     imageUrl: string,
@@ -470,6 +480,12 @@ export function useComfyUI() {
       throw new Error("ComfyUI is not connected. Please check your tunnel URL in settings.");
     }
 
+    // Check if AnimateDiff is available
+    const hasAnimateDiff = await checkAnimateDiffAvailable();
+    if (!hasAnimateDiff) {
+      throw new Error("ANIMATEDIFF_NOT_INSTALLED");
+    }
+
     setIsGeneratingVideo(true);
     setVideoProgress(0);
 
@@ -488,7 +504,7 @@ export function useComfyUI() {
     } finally {
       setIsGeneratingVideo(false);
     }
-  }, [checkConnection, queuePrompt, pollForVideoCompletion]);
+  }, [checkConnection, checkAnimateDiffAvailable, queuePrompt, pollForVideoCompletion]);
 
   // Check system status
   const getSystemStats = useCallback(async () => {
@@ -508,6 +524,7 @@ export function useComfyUI() {
   return {
     generateImage,
     generateVideo,
+    checkAnimateDiffAvailable,
     getSystemStats,
     getModels,
     isGenerating,
