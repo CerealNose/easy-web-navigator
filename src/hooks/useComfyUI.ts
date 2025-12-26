@@ -750,13 +750,146 @@ export function useComfyUI() {
     }
   }, [checkConnection, checkAnimateDiffAvailable, checkVHSAvailable, uploadImage, queuePrompt, pollForVideoCompletion, getModels, videoSettings]);
 
+  // Calculate max clip duration based on current video settings
+  const getMaxClipDuration = useCallback((): number => {
+    // AnimateDiff has practical limits based on VRAM
+    // frames / frameRate = max seconds per clip
+    return videoSettings.frames / videoSettings.frameRate;
+  }, [videoSettings.frames, videoSettings.frameRate]);
+
+  // Generate a long video by auto-splitting into clips and stitching
+  const generateLongVideo = useCallback(async (
+    imageUrl: string,
+    motionPrompt: string,
+    requestedDurationSeconds: number,
+    options: {
+      seed?: number;
+      settingsOverride?: Partial<VideoSettings>;
+      onClipProgress?: (clipIndex: number, totalClips: number, clipVideoUrl: string | null) => void;
+    } = {}
+  ): Promise<{ videoUrls: string[]; totalDuration: number }> => {
+    const {
+      seed = Math.floor(Math.random() * 2147483647),
+      settingsOverride = {},
+      onClipProgress,
+    } = options;
+
+    const settings = { ...videoSettings, ...settingsOverride };
+    const maxClipDuration = settings.frames / settings.frameRate;
+    
+    // Calculate number of clips needed
+    const numClips = Math.ceil(requestedDurationSeconds / maxClipDuration);
+    const actualClipDuration = requestedDurationSeconds / numClips;
+    
+    console.log(`Long video generation: ${requestedDurationSeconds}s requested, ${numClips} clips of ~${actualClipDuration.toFixed(1)}s each (max ${maxClipDuration.toFixed(1)}s per clip)`);
+    
+    // Adjust frames to match actual clip duration
+    const adjustedFrames = Math.round(actualClipDuration * settings.frameRate);
+    const adjustedSettings = { ...settings, frames: adjustedFrames };
+    
+    const videoUrls: string[] = [];
+    let currentImageUrl = imageUrl;
+    
+    for (let i = 0; i < numClips; i++) {
+      console.log(`Generating clip ${i + 1}/${numClips}...`);
+      onClipProgress?.(i, numClips, null);
+      
+      try {
+        const clipSeed = seed + i; // Vary seed slightly for each clip
+        const result = await generateVideo(currentImageUrl, motionPrompt, {
+          seed: clipSeed,
+          settingsOverride: adjustedSettings,
+        });
+        
+        videoUrls.push(result.videoUrl);
+        onClipProgress?.(i, numClips, result.videoUrl);
+        
+        // For continuity: extract last frame of this clip to use as input for next clip
+        if (i < numClips - 1) {
+          const lastFrame = await extractLastFrameFromVideo(result.videoUrl);
+          if (lastFrame) {
+            currentImageUrl = lastFrame;
+          }
+        }
+      } catch (err) {
+        console.error(`Failed to generate clip ${i + 1}:`, err);
+        throw new Error(`Failed to generate clip ${i + 1}/${numClips}: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      }
+    }
+    
+    return {
+      videoUrls,
+      totalDuration: numClips * actualClipDuration,
+    };
+  }, [videoSettings, generateVideo]);
+
+  // Helper to extract last frame from a video URL as base64
+  const extractLastFrameFromVideo = useCallback(async (videoUrl: string): Promise<string | null> => {
+    return new Promise((resolve) => {
+      const video = document.createElement('video');
+      video.crossOrigin = 'anonymous';
+      video.muted = true;
+      video.playsInline = true;
+      
+      const timeoutId = setTimeout(() => {
+        console.warn('Frame extraction timed out');
+        video.remove();
+        resolve(null);
+      }, 30000);
+      
+      video.onloadedmetadata = () => {
+        video.currentTime = Math.max(0, video.duration - 0.1);
+      };
+      
+      video.onseeked = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          const ctx = canvas.getContext('2d');
+          
+          if (ctx) {
+            ctx.drawImage(video, 0, 0);
+            const base64 = canvas.toDataURL('image/png');
+            clearTimeout(timeoutId);
+            video.remove();
+            canvas.remove();
+            resolve(base64);
+          } else {
+            clearTimeout(timeoutId);
+            video.remove();
+            resolve(null);
+          }
+        } catch (err) {
+          console.error('Frame extraction error:', err);
+          clearTimeout(timeoutId);
+          video.remove();
+          resolve(null);
+        }
+      };
+      
+      video.onerror = () => {
+        console.error('Video load error for frame extraction');
+        clearTimeout(timeoutId);
+        video.remove();
+        resolve(null);
+      };
+      
+      video.src = videoUrl;
+      video.load();
+    });
+  }, []);
+
   // Check system status
   const getSystemStats = useCallback(async () => {
     return callComfyUIProxy('system_stats', getComfyUrl());
   }, [getComfyUrl]);
+
   return {
     generateImage,
     generateVideo,
+    generateLongVideo,
+    getMaxClipDuration,
     checkAnimateDiffAvailable,
     getSystemStats,
     getModels,
