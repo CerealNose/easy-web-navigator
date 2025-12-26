@@ -36,13 +36,15 @@ interface SceneEditorProps {
   onScenesChange: (scenes: EditableScene[]) => void;
   onGeneratePrompt: (index: number, lyrics: string) => Promise<string | null>;
   isGeneratingPrompt: number | null;
+  stylePrefix?: string; // The selected visual style (e.g., "cinematic scene, moody lighting...")
 }
 
 export function SceneEditor({ 
   scenes, 
   onScenesChange, 
   onGeneratePrompt,
-  isGeneratingPrompt 
+  isGeneratingPrompt,
+  stylePrefix = ""
 }: SceneEditorProps) {
   const [expandedScene, setExpandedScene] = useState<number | null>(null);
   const [analyzingScene, setAnalyzingScene] = useState<number | null>(null);
@@ -72,14 +74,14 @@ export function SceneEditor({
     try {
       const base64 = await fileToBase64(scene.uploadedImage.file);
       
-      // Call analyze-image-style to get visual description
+      // Call analyze-image-style to get visual description of the image content
       const styleRes = await supabase.functions.invoke("analyze-image-style", {
         body: { imageBase64: base64 }
       });
       
       if (styleRes.error) throw styleRes.error;
       
-      const styleDescription = styleRes.data?.styleDescription || "";
+      const imageDescription = styleRes.data?.styleDescription || "";
       
       // Now generate a scene prompt based on the image
       const promptRes = await supabase.functions.invoke("generate-video-prompt", {
@@ -94,10 +96,10 @@ export function SceneEditor({
       
       const videoPrompt = promptRes.data?.videoPrompt || "";
       
-      // Combine style and video prompt
-      const combinedPrompt = videoPrompt 
-        ? `${styleDescription}, ${videoPrompt}`
-        : styleDescription;
+      // Combine: Selected Style + Image Description + Motion Prompt
+      // Formula: stylePrefix (user's choice) + image analysis + video motion
+      const parts = [stylePrefix, imageDescription, videoPrompt].filter(Boolean);
+      const combinedPrompt = parts.join(", ");
       
       updateScene(index, { prompt: combinedPrompt });
       toast.success(`Scene ${index + 1}: Prompt generated from image analysis`);
@@ -133,14 +135,14 @@ export function SceneEditor({
         setAnalyzingScene(index);
         const base64 = await fileToBase64(scene.uploadedImage!.file);
         
-        // Call analyze-image-style to get visual description
+        // Call analyze-image-style to get visual description of the image content
         const styleRes = await supabase.functions.invoke("analyze-image-style", {
           body: { imageBase64: base64 }
         });
         
         if (styleRes.error) throw styleRes.error;
         
-        const styleDescription = styleRes.data?.styleDescription || "";
+        const imageDescription = styleRes.data?.styleDescription || "";
         
         // Generate a scene prompt based on the image
         const promptRes = await supabase.functions.invoke("generate-video-prompt", {
@@ -155,9 +157,9 @@ export function SceneEditor({
         
         const videoPrompt = promptRes.data?.videoPrompt || "";
         
-        const combinedPrompt = videoPrompt 
-          ? `${styleDescription}, ${videoPrompt}`
-          : styleDescription;
+        // Combine: Selected Style + Image Description + Motion Prompt
+        const parts = [stylePrefix, imageDescription, videoPrompt].filter(Boolean);
+        const combinedPrompt = parts.join(", ");
         
         updateScene(index, { prompt: combinedPrompt });
         successCount++;
