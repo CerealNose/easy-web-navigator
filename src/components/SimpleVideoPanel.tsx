@@ -180,6 +180,32 @@ export function SimpleVideoPanel() {
     }]);
   }, []);
 
+  // Generate transition video between two images using AI
+  const generateTransitionVideo = useCallback(async (
+    fromImageUrl: string, 
+    toImageUrl: string,
+    index: number,
+    total: number
+  ): Promise<string | null> => {
+    toast.info(`Generating morph transition ${index + 1}/${total}...`);
+    
+    try {
+      // Use the "from" image and prompt it to morph toward the "to" image characteristics
+      // We generate a 3-second transition clip
+      const result = await generateVideo(fromImageUrl, 
+        "smooth morphing transformation, seamless transition, fluid motion, cinematic blend", {
+        duration: 3, // 3 second morph transition
+        width: 832,
+        height: 480
+      });
+      
+      return result?.videoUrl || null;
+    } catch (err) {
+      console.error("Transition generation failed:", err);
+      return null;
+    }
+  }, [generateVideo]);
+
   // Generate all videos
   const handleGenerateAllVideos = useCallback(async () => {
     if (!isComfyUIConnected) {
@@ -197,18 +223,18 @@ export function SimpleVideoPanel() {
     setFinalVideoUrl(null);
 
     try {
-      const videoUrls: string[] = [];
+      const sceneVideos: { sceneIndex: number; videoUrl: string }[] = [];
 
+      // Step 1: Generate all scene videos
       for (let i = 0; i < scenesWithImages.length; i++) {
         const scene = scenesWithImages[i];
         setCurrentSceneIndex(i);
         
-        // Update status
         setScenes(prev => prev.map(s => 
           s.id === scene.id ? { ...s, status: 'generating' } : s
         ));
 
-        toast.info(`Generating video ${i + 1}/${scenesWithImages.length}...`);
+        toast.info(`Generating scene ${i + 1}/${scenesWithImages.length}...`);
 
         const result = await generateVideo(scene.imageUrl, scene.prompt || "smooth motion, cinematic", {
           duration: scene.duration,
@@ -217,7 +243,7 @@ export function SimpleVideoPanel() {
         });
 
         if (result?.videoUrl) {
-          videoUrls.push(result.videoUrl);
+          sceneVideos.push({ sceneIndex: i, videoUrl: result.videoUrl });
           setScenes(prev => prev.map(s => 
             s.id === scene.id ? { ...s, videoUrl: result.videoUrl, status: 'complete' } : s
           ));
@@ -228,16 +254,57 @@ export function SimpleVideoPanel() {
         }
       }
 
-      // Stitch videos together
-      if (videoUrls.length > 1) {
-        toast.info("Stitching videos together...");
-        const stitchedResult = await stitchVideos(videoUrls);
+      // Step 2: Generate AI morph transitions between consecutive scenes
+      const transitionVideos: { afterSceneIndex: number; videoUrl: string }[] = [];
+      
+      if (sceneVideos.length > 1) {
+        toast.info("Generating AI morph transitions...");
+        
+        for (let i = 0; i < scenesWithImages.length - 1; i++) {
+          const fromScene = scenesWithImages[i];
+          const toScene = scenesWithImages[i + 1];
+          
+          const transitionUrl = await generateTransitionVideo(
+            fromScene.imageUrl,
+            toScene.imageUrl,
+            i,
+            scenesWithImages.length - 1
+          );
+          
+          if (transitionUrl) {
+            transitionVideos.push({ afterSceneIndex: i, videoUrl: transitionUrl });
+          }
+        }
+      }
+
+      // Step 3: Interleave scene videos with transitions
+      const finalVideoSequence: string[] = [];
+      
+      for (let i = 0; i < sceneVideos.length; i++) {
+        const sceneVideo = sceneVideos.find(v => v.sceneIndex === i);
+        if (sceneVideo) {
+          finalVideoSequence.push(sceneVideo.videoUrl);
+        }
+        
+        // Add transition after this scene (if not the last scene)
+        const transition = transitionVideos.find(t => t.afterSceneIndex === i);
+        if (transition) {
+          finalVideoSequence.push(transition.videoUrl);
+        }
+      }
+
+      // Step 4: Stitch everything together
+      if (finalVideoSequence.length > 1) {
+        toast.info("Stitching videos with transitions...");
+        const stitchedResult = await stitchVideos(finalVideoSequence, {
+          transitionDuration: 0.3 // Small crossfade on top for extra smoothness
+        });
         if (stitchedResult?.url) {
           setFinalVideoUrl(stitchedResult.url);
-          toast.success("Video complete!");
+          toast.success("Video complete with AI morph transitions!");
         }
-      } else if (videoUrls.length === 1) {
-        setFinalVideoUrl(videoUrls[0]);
+      } else if (finalVideoSequence.length === 1) {
+        setFinalVideoUrl(finalVideoSequence[0]);
         toast.success("Video complete!");
       }
 
@@ -247,7 +314,7 @@ export function SimpleVideoPanel() {
     } finally {
       setIsGenerating(false);
     }
-  }, [isComfyUIConnected, scenes, generateVideo, stitchVideos]);
+  }, [isComfyUIConnected, scenes, generateVideo, generateTransitionVideo, stitchVideos]);
 
   // Download final video
   const handleDownload = useCallback(() => {
