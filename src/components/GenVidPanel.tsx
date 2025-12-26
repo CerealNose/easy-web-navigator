@@ -103,10 +103,12 @@ const STYLE_PRESETS = {
 };
 
 const MOTION_PRESETS = {
-  slow: { label: "Slow & Smooth", prompt: "slow camera movement, smooth pan, atmospheric" },
-  dynamic: { label: "Dynamic", prompt: "dynamic camera movement, action-oriented" },
-  static: { label: "Static", prompt: "still camera, minimal movement, contemplative" },
-  zoom: { label: "Slow Zoom", prompt: "slow zoom in, focus on details, cinematic" },
+  slow: { label: "Slow & Smooth", prompt: "slow camera movement, smooth pan, atmospheric", description: "Gentle flowing motion, great for emotional moments" },
+  dynamic: { label: "Dynamic", prompt: "dynamic camera movement, action-oriented", description: "Energetic movement, good for upbeat sections" },
+  static: { label: "Static", prompt: "still camera, minimal movement, contemplative", description: "Minimal motion, focuses on the scene itself" },
+  zoom: { label: "Slow Zoom", prompt: "slow zoom in, focus on details, cinematic", description: "Gradual zoom creates intensity and focus" },
+  cinematic: { label: "Cinematic Mix", prompt: "cinematic camera movement, dramatic angles", description: "Varied cinematic movements for professional look" },
+  drift: { label: "Gentle Drift", prompt: "subtle camera drift, floating movement, dreamy", description: "Soft floating motion, ethereal feel" },
 };
 
 const VIDEO_SIZES = {
@@ -1328,15 +1330,24 @@ export function GenVidPanel({ sections, timestamps, moodPrompt = "", sectionProm
           
           // Prepare video generation payload with unique motion for each scene
           // Add scene-specific motion variation to prevent static/identical videos
+          // More varied motion prompts for long videos (48 scenes for 4 min @ 5s each)
           const motionVariations = [
-            "gentle forward camera push",
-            "slow pan left to right", 
-            "subtle zoom out revealing scene",
-            "smooth dolly movement",
-            "slow tracking shot",
-            "gentle parallax shift",
-            "subtle camera drift",
-            "slow reveal with depth",
+            "gentle forward camera push with subtle parallax",
+            "slow pan left to right across scene", 
+            "subtle zoom out revealing the full scene",
+            "smooth dolly forward movement",
+            "slow tracking shot moving right",
+            "gentle parallax shift with depth layers",
+            "subtle floating camera drift upward",
+            "slow reveal with increasing depth of field",
+            "smooth arc movement around subject",
+            "gentle pull back with widening view",
+            "slow pan right to left exploring scene",
+            "subtle push in focusing on details",
+            "dreamy floating drift motion",
+            "cinematic dolly zoom effect",
+            "gentle sway with natural movement",
+            "slow diagonal drift top-left to bottom-right",
           ];
           const sceneMotion = motionVariations[i % motionVariations.length];
           const videoPrompt = `${scenePrompt}, ${motionPrompt}, ${sceneMotion}`;
