@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -33,7 +34,7 @@ export interface EditableScene {
 
 interface SceneEditorProps {
   scenes: EditableScene[];
-  onScenesChange: (scenes: EditableScene[]) => void;
+  onScenesChange: Dispatch<SetStateAction<EditableScene[]>>;
   onGeneratePrompt: (index: number, lyrics: string) => Promise<string | null>;
   isGeneratingPrompt: number | null;
   stylePrefix?: string; // The selected visual style (e.g., "cinematic scene, moody lighting...")
@@ -134,33 +135,33 @@ export function SceneEditor({
       try {
         setAnalyzingScene(index);
         const base64 = await fileToBase64(scene.uploadedImage!.file);
-        
+
         // Call analyze-image-style to get visual description of the image content
         const styleRes = await supabase.functions.invoke("analyze-image-style", {
-          body: { imageBase64: base64 }
+          body: { imageBase64: base64 },
         });
-        
+
         if (styleRes.error) throw styleRes.error;
-        
+
         const imageDescription = styleRes.data?.styleDescription || "";
-        
+
         // Generate a scene prompt based on the image
         const promptRes = await supabase.functions.invoke("generate-video-prompt", {
           body: {
             imageBase64: base64,
             lyricContext: scene.lyrics,
-            motionHint: "slow camera movement, smooth pan, atmospheric"
-          }
+            motionHint: "slow camera movement, smooth pan, atmospheric",
+          },
         });
-        
+
         if (promptRes.error) throw promptRes.error;
-        
+
         const videoPrompt = promptRes.data?.videoPrompt || "";
-        
+
         // Combine: Selected Style + Image Description + Motion Prompt
         const parts = [stylePrefix, imageDescription, videoPrompt].filter(Boolean);
         const combinedPrompt = parts.join(", ");
-        
+
         updateScene(index, { prompt: combinedPrompt });
         successCount++;
       } catch (error) {
@@ -183,10 +184,9 @@ export function SceneEditor({
   };
 
   const updateScene = (index: number, updates: Partial<EditableScene>) => {
-    const newScenes = scenes.map((scene, i) => 
-      i === index ? { ...scene, ...updates } : scene
+    onScenesChange((prev) =>
+      prev.map((scene, i) => (i === index ? { ...scene, ...updates } : scene))
     );
-    onScenesChange(newScenes);
   };
 
   const handleImageUpload = (index: number, file: File) => {
